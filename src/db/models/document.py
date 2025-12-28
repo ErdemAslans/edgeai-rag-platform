@@ -1,0 +1,90 @@
+"""Document database model."""
+
+import uuid
+from datetime import datetime
+from typing import List, Dict, Any, TYPE_CHECKING
+
+from sqlalchemy import String, BigInteger, DateTime, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from src.db.base import Base
+
+if TYPE_CHECKING:
+    from src.db.models.user import User
+    from src.db.models.chunk import Chunk
+
+
+class Document(Base):
+    """Document model for uploaded files."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    filename: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    storage_path: Mapped[str] = mapped_column(
+        String(1000),
+        nullable=False,
+    )
+    file_size: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="pending",
+        nullable=False,
+        index=True,
+    )
+    doc_metadata: Mapped[Dict[str, Any]] = mapped_column(
+        "metadata",  # Use 'metadata' as column name in DB
+        JSONB,
+        default=dict,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="documents",
+    )
+    chunks: Mapped[List["Chunk"]] = relationship(
+        "Chunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return f"<Document(id={self.id}, filename={self.filename}, status={self.status})>"

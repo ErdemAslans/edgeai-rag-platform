@@ -1,0 +1,1 @@
+"""Database module for models, session management, and repositories."""
