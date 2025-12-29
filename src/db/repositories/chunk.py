@@ -84,7 +84,7 @@ class ChunkRepository(BaseRepository[Chunk]):
         limit: int = 5,
         user_id: uuid.UUID | None = None,
         document_ids: List[uuid.UUID] | None = None,
-        similarity_threshold: float = 0.3,
+        similarity_threshold: float = 0.1,  # Lowered threshold to find more relevant chunks
     ) -> List[Chunk]:
         """Search for similar chunks using vector similarity.
         

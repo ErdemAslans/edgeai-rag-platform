@@ -1,10 +1,12 @@
 """Agent management endpoints."""
 
 import uuid
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.api.deps import get_db, CurrentUser
 from src.api.v1.schemas.agents import (
@@ -16,34 +18,42 @@ from src.api.v1.schemas.agents import (
     AgentLogsListResponse,
 )
 from src.db.repositories.agent_log import AgentLogRepository
+from src.agents import get_orchestrator, OrchestratorMode
 
 router = APIRouter()
+logger = structlog.get_logger()
 
-# Available agents
+# Available agents with their capabilities
 AVAILABLE_AGENTS = {
     "query_router": AgentInfo(
         name="query_router",
-        description="Routes incoming queries to appropriate specialist agents",
+        description="Routes incoming queries to appropriate specialist agents based on intent",
         status="active",
-        capabilities=["intent_classification", "agent_selection"],
+        capabilities=["intent_classification", "agent_selection", "keyword_routing", "llm_routing"],
     ),
     "document_analyzer": AgentInfo(
         name="document_analyzer",
-        description="Extracts and analyzes information from documents",
+        description="Performs deep analysis of documents to extract insights, themes, and entities",
         status="active",
-        capabilities=["vector_search", "document_reading", "context_building"],
+        capabilities=["theme_extraction", "entity_recognition", "structure_analysis", "sentiment_analysis"],
     ),
     "summarizer": AgentInfo(
         name="summarizer",
-        description="Creates concise summaries of documents or content",
+        description="Creates clear, concise summaries of documents or content in various formats",
         status="active",
-        capabilities=["document_reading", "summary_generation"],
+        capabilities=["short_summary", "long_summary", "bullet_points", "executive_summary"],
     ),
     "sql_generator": AgentInfo(
         name="sql_generator",
-        description="Converts natural language to SQL queries",
+        description="Converts natural language questions to SQL queries",
         status="active",
-        capabilities=["schema_inspection", "sql_generation", "sql_validation"],
+        capabilities=["sql_generation", "schema_understanding", "query_optimization"],
+    ),
+    "rag_query": AgentInfo(
+        name="rag_query",
+        description="Answers questions using document context through RAG (Retrieval Augmented Generation)",
+        status="active",
+        capabilities=["context_retrieval", "question_answering", "source_citation"],
     ),
 }
 
@@ -81,13 +91,20 @@ async def execute_agent(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> AgentExecuteResponse:
-    """Execute a specific agent with given input."""
+    """Execute a specific agent with given input.
+    
+    The input_data should contain:
+    - query: The text query or request for the agent
+    - context: Optional list of context strings for RAG-based agents
+    - Additional agent-specific parameters
+    """
     if agent_name not in AVAILABLE_AGENTS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Agent '{agent_name}' not found",
+            detail=f"Agent '{agent_name}' not found. Available agents: {list(AVAILABLE_AGENTS.keys())}",
         )
     
+    start_time = time.time()
     agent_log_repo = AgentLogRepository(db)
     
     # Log agent execution start
@@ -98,33 +115,79 @@ async def execute_agent(
         "status": "started",
     })
     
-    # TODO: Implement actual agent execution
-    # 1. Get the appropriate agent
-    # 2. Execute with input data
-    # 3. Return results
-    
-    # Placeholder response
-    output_data = {
-        "message": f"Agent '{agent_name}' executed successfully",
-        "input_received": request.input_data,
-    }
+    try:
+        # Get orchestrator and execute the agent
+        orchestrator = get_orchestrator()
+        
+        # Extract query and context from input data
+        query = request.input_data.get("query", "")
+        context = request.input_data.get("context", [])
+        
+        if not query:
+            raise ValueError("Input data must contain a 'query' field")
+        
+        # Execute through orchestrator with manual mode to use specific agent
+        result = await orchestrator.execute(
+            query=query,
+            context=context if context else None,
+            mode=OrchestratorMode.MANUAL,
+            agent_name=agent_name,
+            input_data=request.input_data,
+        )
+        
+        execution_time_ms = (time.time() - start_time) * 1000
+        
+        # Build output data
+        output_data = {
+            "response": result.get("response", ""),
+            "agent_result": result.get("agent_result", {}),
+            "routing": result.get("routing", {}),
+            "success": result.get("success", False),
+        }
+        
+        status_str = "completed" if result.get("success") else "failed"
+        
+        logger.info(
+            "Agent execution completed",
+            agent_name=agent_name,
+            execution_time_ms=execution_time_ms,
+            success=result.get("success"),
+        )
+        
+    except Exception as e:
+        execution_time_ms = (time.time() - start_time) * 1000
+        output_data = {
+            "error": str(e),
+            "success": False,
+        }
+        status_str = "failed"
+        
+        logger.error(
+            "Agent execution failed",
+            agent_name=agent_name,
+            error=str(e),
+            execution_time_ms=execution_time_ms,
+        )
     
     # Update log with completion
     await agent_log_repo.update(
         log_entry.id,
         {
             "output_data": output_data,
-            "status": "completed",
-            "execution_time_ms": 100.0,  # Placeholder
+            "status": status_str,
+            "execution_time_ms": execution_time_ms,
+            "error_message": output_data.get("error") if status_str == "failed" else None,
         }
     )
+    
+    await db.commit()
     
     return AgentExecuteResponse(
         execution_id=log_entry.id,
         agent_name=agent_name,
-        status="completed",
+        status=status_str,
         output=output_data,
-        execution_time_ms=100.0,
+        execution_time_ms=execution_time_ms,
     )
 
 

@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { askQuestion, getChatHistory } from '@/api/queries';
-import { QueryResponse, ChatHistory } from '@/types';
+import { QueryResponse, ChatHistory, QueryMode } from '@/types';
 import { useChatStore } from '@/stores/chatStore';
 import { useToast } from '@/components/ui/Toast';
 
@@ -19,10 +19,18 @@ export const useChat = () => {
   } = useChatStore();
 
   const sendMessageMutation = useMutation({
-    mutationFn: async ({ message, documentIds }: { message: string; documentIds?: string[] }) => {
+    mutationFn: async ({
+      message,
+      documentIds,
+      mode = 'auto'
+    }: {
+      message: string;
+      documentIds?: string[];
+      mode?: QueryMode;
+    }) => {
       setLoading(true);
-      // Use askQuestion which supports RAG with document_ids
-      const response = await askQuestion(message, documentIds);
+      // Use askQuestion which supports RAG with document_ids and mode selection
+      const response = await askQuestion(message, documentIds, mode);
       return response;
     },
     onSuccess: (data: QueryResponse, variables) => {
@@ -40,6 +48,8 @@ export const useChat = () => {
         timestamp: new Date().toISOString(),
         agent: data.agent_used,
         sources: data.sources,
+        routing: data.routing,
+        executionTime: data.execution_time_ms,
       };
 
       addMessage(userMessage);
@@ -62,8 +72,8 @@ export const useChat = () => {
     },
   });
 
-  const sendMessage = (message: string, documentIds?: string[]) => {
-    sendMessageMutation.mutate({ message, documentIds });
+  const sendMessage = (message: string, documentIds?: string[], mode: QueryMode = 'auto') => {
+    sendMessageMutation.mutate({ message, documentIds, mode });
   };
 
   const loadHistory = () => {

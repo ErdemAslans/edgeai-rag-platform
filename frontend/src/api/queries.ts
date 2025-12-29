@@ -1,5 +1,5 @@
 import api from './client';
-import { QueryResponse, ChatHistory, Message } from '@/types';
+import { QueryResponse, ChatHistory, Message, QueryMode, RoutingInfo } from '@/types';
 
 interface QueryHistoryAPIResponse {
   queries: Array<{
@@ -14,16 +14,50 @@ interface QueryHistoryAPIResponse {
       score: number;
     }>;
     agent_used: string;
+    routing?: {
+      selected_agent: string;
+      confidence: number;
+      reason: string;
+    };
+    execution_time_ms?: number;
   }>;
   total: number;
   skip: number;
   limit: number;
 }
 
-export const askQuestion = async (query: string, documentIds?: string[]): Promise<QueryResponse> => {
-  const response = await api.post<{ query_id: string; query: string; response: string; sources: any[]; agent_used: string }>('/queries/ask', {
+interface AskQuestionOptions {
+  query: string;
+  documentIds?: string[];
+  mode?: QueryMode;
+  agentName?: string;
+}
+
+interface QueryAPIResponse {
+  query_id: string;
+  query: string;
+  response: string;
+  sources: any[];
+  agent_used: string;
+  routing?: {
+    selected_agent: string;
+    confidence: number;
+    reason: string;
+  };
+  execution_time_ms?: number;
+}
+
+export const askQuestion = async (
+  query: string,
+  documentIds?: string[],
+  mode: QueryMode = 'auto',
+  agentName?: string
+): Promise<QueryResponse> => {
+  const response = await api.post<QueryAPIResponse>('/queries/ask', {
     query,
     document_ids: documentIds,
+    mode,
+    agent_name: agentName,
   });
   // Map backend response to frontend type
   return {
@@ -32,22 +66,40 @@ export const askQuestion = async (query: string, documentIds?: string[]): Promis
     response: response.data.response,
     sources: response.data.sources,
     agent_used: response.data.agent_used,
+    routing: response.data.routing,
+    execution_time_ms: response.data.execution_time_ms,
     created_at: new Date().toISOString(),
   };
 };
 
-export const sendChatMessage = async (message: string, conversationId?: string): Promise<QueryResponse> => {
-  const response = await api.post<{ message_id: string; response: string; context_used: any[] }>('/queries/chat', {
+export const sendChatMessage = async (
+  message: string,
+  documentIds?: string[],
+  mode: QueryMode = 'auto'
+): Promise<QueryResponse> => {
+  const response = await api.post<{
+    message_id: string;
+    response: string;
+    context_used: any[];
+    agent_used: string;
+    routing?: {
+      selected_agent: string;
+      confidence: number;
+      reason: string;
+    };
+  }>('/queries/chat', {
     message,
-    conversation_id: conversationId,
+    document_ids: documentIds,
+    mode,
   });
   // Map backend response to frontend type
   return {
     id: response.data.message_id,
     query: message,
     response: response.data.response,
-    sources: [],
-    agent_used: 'document_analyzer',
+    sources: response.data.context_used || [],
+    agent_used: response.data.agent_used || 'rag_query',
+    routing: response.data.routing,
     created_at: new Date().toISOString(),
   };
 };

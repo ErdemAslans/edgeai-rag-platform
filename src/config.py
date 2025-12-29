@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Groq
     GROQ_API_KEY: str | None = None
-    GROQ_MODEL: str = "llama-3.1-70b-versatile"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"  # Updated: llama-3.1-70b-versatile was decommissioned
 
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"

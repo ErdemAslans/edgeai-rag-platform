@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Send, FileText, X, ChevronDown } from 'lucide-react';
+import { MessageSquare, Send, FileText, X, ChevronDown, Bot, Zap, FileSearch, Database, List } from 'lucide-react';
 import PageContainer from '@/components/layout/PageContainer';
 import MessageBubble from '@/components/chat/MessageBubble';
 import { Button, Card, Spinner } from '@/components/ui';
 import { useChat } from '@/hooks/useChat';
 import { useDocuments } from '@/hooks/useDocuments';
-import { Document } from '@/types';
+import { Document, QueryMode } from '@/types';
+
+// Query mode options with icons and descriptions
+const QUERY_MODES: { value: QueryMode; label: string; description: string; icon: React.ReactNode }[] = [
+  { value: 'auto', label: 'Auto', description: 'Smart routing to best agent', icon: <Zap className="w-4 h-4" /> },
+  { value: 'rag', label: 'RAG Search', description: 'Search documents for answers', icon: <FileSearch className="w-4 h-4" /> },
+  { value: 'summarize', label: 'Summarize', description: 'Create summaries of content', icon: <List className="w-4 h-4" /> },
+  { value: 'analyze', label: 'Analyze', description: 'Deep analysis of documents', icon: <Bot className="w-4 h-4" /> },
+  { value: 'sql', label: 'SQL', description: 'Generate SQL queries', icon: <Database className="w-4 h-4" /> },
+];
 
 const Chat = () => {
   const {
@@ -18,11 +27,16 @@ const Chat = () => {
   const [message, setMessage] = useState('');
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
   const [showDocumentPicker, setShowDocumentPicker] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<QueryMode>('auto');
+  const [showModePicker, setShowModePicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Get processed documents only
   const processedDocuments = documents?.filter(d => d.status === 'completed') || [];
+  
+  // Get current mode info
+  const currentModeInfo = QUERY_MODES.find(m => m.value === selectedMode) || QUERY_MODES[0];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -30,9 +44,9 @@ const Chat = () => {
 
   const handleSendMessage = () => {
     if (message.trim() && !isLoading) {
-      // Pass document IDs array to sendMessage
+      // Pass document IDs array and mode to sendMessage
       const docIds = selectedDocuments.length > 0 ? selectedDocuments : undefined;
-      sendMessage(message.trim(), docIds);
+      sendMessage(message.trim(), docIds, selectedMode);
       setMessage('');
     }
   };
@@ -61,10 +75,68 @@ const Chat = () => {
   };
 
   return (
-    <PageContainer title="Chat" subtitle="Ask questions about your documents">
+    <PageContainer title="Chat" subtitle="Ask questions about your documents with smart agent routing">
       <div className="flex flex-col h-[calc(100vh-12rem)]">
-        {/* Document Selection Bar */}
-        <div className="mb-4">
+        {/* Mode and Document Selection Bar */}
+        <div className="mb-4 space-y-2">
+          {/* Agent Mode Selection */}
+          <Card className="p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-accent" />
+                <span className="text-sm font-medium text-text-primary">
+                  Agent Mode:
+                </span>
+                <div className="flex items-center gap-1 px-2 py-1 bg-accent/10 rounded-md">
+                  {currentModeInfo.icon}
+                  <span className="text-sm font-medium text-accent">{currentModeInfo.label}</span>
+                </div>
+                <span className="text-xs text-text-secondary hidden sm:inline">
+                  {currentModeInfo.description}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowModePicker(!showModePicker)}
+              >
+                <ChevronDown className={`w-4 h-4 transition-transform ${showModePicker ? 'rotate-180' : ''}`} />
+                Change
+              </Button>
+            </div>
+
+            {/* Mode Picker Dropdown */}
+            {showModePicker && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  {QUERY_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      onClick={() => {
+                        setSelectedMode(mode.value);
+                        setShowModePicker(false);
+                      }}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-lg transition-colors ${
+                        selectedMode === mode.value
+                          ? 'bg-accent text-white'
+                          : 'bg-secondary hover:bg-secondary/80 text-text-primary'
+                      }`}
+                    >
+                      <div className={selectedMode === mode.value ? 'text-white' : 'text-accent'}>
+                        {mode.icon}
+                      </div>
+                      <span className="text-sm font-medium">{mode.label}</span>
+                      <span className={`text-xs ${selectedMode === mode.value ? 'text-white/80' : 'text-text-secondary'}`}>
+                        {mode.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Document Selection */}
           <Card className="p-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -161,9 +233,23 @@ const Chat = () => {
                   Start a conversation
                 </h2>
                 <p className="text-text-secondary max-w-md">
-                  Ask questions about your documents. Select specific documents above
-                  or search across all your processed documents.
+                  Ask questions about your documents. The system will automatically
+                  route your query to the best agent, or select a specific mode above.
                 </p>
+                <div className="flex flex-wrap justify-center gap-2 mt-4">
+                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                    🤖 Smart Routing
+                  </span>
+                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                    📄 RAG Search
+                  </span>
+                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                    📝 Summarization
+                  </span>
+                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
+                    🔍 Analysis
+                  </span>
+                </div>
                 {processedDocuments.length > 0 && (
                   <p className="text-sm text-accent mt-4">
                     {processedDocuments.length} document{processedDocuments.length > 1 ? 's' : ''} ready for search
@@ -224,9 +310,14 @@ const Chat = () => {
             </Button>
           </div>
           <div className="flex justify-between mt-2">
-            <p className="text-xs text-text-secondary">
-              Press Enter to send, Shift + Enter for new line
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-text-secondary">
+                Press Enter to send, Shift + Enter for new line
+              </p>
+              <span className="text-xs text-accent">
+                • Mode: {currentModeInfo.label}
+              </span>
+            </div>
             {currentConversation.length > 0 && (
               <button
                 onClick={clearCurrentConversation}

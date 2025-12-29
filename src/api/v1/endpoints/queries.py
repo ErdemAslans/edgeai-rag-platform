@@ -1,6 +1,7 @@
 """Query and chat endpoints with RAG support."""
 
 import uuid
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -11,18 +12,22 @@ from src.api.deps import get_db, CurrentUser
 from src.api.v1.schemas.queries import (
     QueryRequest,
     QueryResponse,
+    QueryMode,
     ChatRequest,
     ChatResponse,
     SQLQueryRequest,
     SQLQueryResponse,
     QueryHistoryResponse,
     SourceChunk,
+    RoutingInfo,
 )
 from src.db.repositories.query import QueryRepository
 from src.db.repositories.chunk import ChunkRepository
 from src.db.repositories.document import DocumentRepository
+from src.db.repositories.agent_log import AgentLogRepository
 from src.services.llm_service import get_llm_service
 from src.services.embedding_service import get_embedding_service
+from src.agents import get_orchestrator, OrchestratorMode, AgentType
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -72,18 +77,31 @@ async def ask_question(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
-    """Ask a question using RAG (Retrieval Augmented Generation)."""
+    """Ask a question using smart agent routing.
+    
+    Supports multiple modes:
+    - AUTO: Automatically routes to the best agent based on query content
+    - RAG: Forces RAG-based question answering
+    - SUMMARIZE: Forces summarization
+    - ANALYZE: Forces document analysis
+    - SQL: Forces SQL generation
+    """
+    start_time = time.time()
     query_repo = QueryRepository(db)
+    agent_log_repo = AgentLogRepository(db)
     
     # Search for relevant document chunks
     sources = []
-    context_text = ""
+    context_texts = []
     
     try:
         # Convert document_ids to UUIDs if provided
         doc_ids = None
         if query_data.document_ids:
             doc_ids = [uuid.UUID(d) if isinstance(d, str) else d for d in query_data.document_ids]
+            logger.info("RAG search with document filter", document_ids=[str(d) for d in doc_ids])
+        else:
+            logger.info("RAG search without document filter (all documents)")
         
         # Search for relevant chunks
         relevant_chunks = await search_relevant_chunks(
@@ -91,14 +109,19 @@ async def ask_question(
             query=query_data.query,
             user_id=current_user.id,
             document_ids=doc_ids,
-            limit=5,
+            limit=query_data.top_k,
         )
+        
+        logger.info("Vector search completed", chunks_found=len(relevant_chunks))
         
         if relevant_chunks:
             # Build context from chunks
-            context_parts = []
             for i, chunk in enumerate(relevant_chunks, 1):
-                context_parts.append(f"[Source {i}: {chunk['document_name']}]\n{chunk['content']}")
+                logger.debug("Adding chunk to context",
+                           chunk_num=i,
+                           doc_name=chunk['document_name'],
+                           content_preview=chunk['content'][:100])
+                context_texts.append(f"[Source {i}: {chunk['document_name']}]\n{chunk['content']}")
                 sources.append(SourceChunk(
                     document_id=uuid.UUID(chunk['document_id']),
                     document_name=chunk['document_name'],
@@ -107,65 +130,110 @@ async def ask_question(
                     similarity_score=chunk['score'],
                 ))
             
-            context_text = "\n\n".join(context_parts)
             logger.info("Found relevant chunks", count=len(relevant_chunks))
+        else:
+            logger.warning("No relevant chunks found for query", query=query_data.query[:50])
     except Exception as e:
-        logger.error("Vector search failed", error=str(e))
+        logger.error("Vector search failed", error=str(e), error_type=type(e).__name__)
+        import traceback
+        logger.error("Vector search traceback", traceback=traceback.format_exc())
         # Continue without context
     
+    # Determine orchestrator mode and agent based on query mode
+    orchestrator = get_orchestrator()
+    orchestrator_mode = OrchestratorMode.AUTO
+    agent_name = query_data.agent_name
+    
+    # Map query mode to agent name if specific mode selected
+    mode_to_agent = {
+        QueryMode.RAG: "rag_query",
+        QueryMode.SUMMARIZE: "summarizer",
+        QueryMode.ANALYZE: "document_analyzer",
+        QueryMode.SQL: "sql_generator",
+    }
+    
+    if query_data.mode != QueryMode.AUTO:
+        orchestrator_mode = OrchestratorMode.MANUAL
+        agent_name = mode_to_agent.get(query_data.mode, "rag_query")
+    elif query_data.agent_name:
+        orchestrator_mode = OrchestratorMode.MANUAL
+    
     try:
-        # Get LLM service
-        llm_service = get_llm_service()
-        
-        # Build prompt with context
-        if context_text:
-            system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
-You answer questions based on the provided document context.
-Always cite your sources when answering.
-If the context doesn't contain relevant information, say so clearly."""
-
-            prompt = f"""Based on the following document excerpts, please answer the question.
-
-CONTEXT:
-{context_text}
-
-QUESTION: {query_data.query}
-
-Please provide a comprehensive answer based on the context above. If the context doesn't contain enough information, acknowledge that."""
-        else:
-            system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
-You help users with their questions about documents and data.
-Be concise, accurate, and helpful in your responses.
-If you don't know something, say so clearly."""
-            prompt = query_data.query
-
-        response_text = await llm_service.generate(
-            prompt=prompt,
-            system_prompt=system_prompt,
-            temperature=0.7,
-            max_tokens=1024,
+        # Execute query through orchestrator
+        result = await orchestrator.execute(
+            query=query_data.query,
+            context=context_texts if context_texts else None,
+            mode=orchestrator_mode,
+            agent_name=agent_name,
         )
+        
+        response_text = result.get("response", "No response generated")
+        agent_used = result.get("agent_used", "unknown")
+        routing_info = result.get("routing", {})
+        
+        logger.info(
+            "Orchestrator execution completed",
+            agent_used=agent_used,
+            routing_confidence=routing_info.get("confidence", 0),
+            success=result.get("success", False),
+        )
+        
     except Exception as e:
-        logger.error("LLM generation failed", error=str(e))
+        logger.error("Orchestrator execution failed", error=str(e))
         response_text = f"I apologize, but I encountered an error processing your question. Please try again. Error: {str(e)}"
+        agent_used = "error"
+        routing_info = {"agent": "error", "confidence": 0, "reason": str(e)}
+    
+    execution_time_ms = (time.time() - start_time) * 1000
+    
+    # Prepare context for database storage (convert UUIDs to strings)
+    context_for_db = []
+    for s in sources:
+        source_dict = s.model_dump()
+        # Convert UUIDs to strings for JSON serialization
+        source_dict['document_id'] = str(source_dict['document_id'])
+        source_dict['chunk_id'] = str(source_dict['chunk_id'])
+        context_for_db.append(source_dict)
     
     # Save query to database
     query_record = await query_repo.create({
         "user_id": current_user.id,
         "query_text": query_data.query,
         "response_text": response_text,
-        "agent_used": "rag_agent",
-        "context_used": [s.model_dump() for s in sources] if sources else [],
+        "agent_used": agent_used,
+        "context_used": context_for_db,
+        "response_time_ms": execution_time_ms,
+    })
+    
+    # Log agent execution
+    await agent_log_repo.create({
+        "agent_name": agent_used,
+        "action": "query",
+        "input_data": {"query": query_data.query[:500], "mode": query_data.mode.value},
+        "output_data": {"response_preview": response_text[:500]},
+        "status": "completed" if "error" not in response_text.lower() else "failed",
+        "execution_time_ms": execution_time_ms,
     })
     
     await db.commit()
+    
+    # Build routing info for response
+    routing_response = None
+    if routing_info:
+        routing_response = RoutingInfo(
+            selected_agent=routing_info.get("agent", agent_used),
+            confidence=routing_info.get("confidence", 1.0),
+            reason=routing_info.get("reason", "Direct execution"),
+        )
     
     return QueryResponse(
         query_id=query_record.id,
         query=query_data.query,
         response=response_text,
         sources=sources,
-        agent_used="rag_agent",
+        agent_used=agent_used,
+        routing=routing_response,
+        execution_time_ms=execution_time_ms,
     )
 
 
@@ -175,43 +243,113 @@ async def chat_with_context(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponse:
-    """Chat with context from previous messages."""
+    """Chat with smart agent routing and document context."""
     query_repo = QueryRepository(db)
+    agent_log_repo = AgentLogRepository(db)
+    start_time = time.time()
+    
+    # Search for relevant document chunks if document_ids provided
+    sources = []
+    context_texts = []
+    
+    if chat_data.document_ids:
+        try:
+            doc_ids = [uuid.UUID(d) if isinstance(d, str) else d for d in chat_data.document_ids]
+            relevant_chunks = await search_relevant_chunks(
+                db=db,
+                query=chat_data.message,
+                user_id=current_user.id,
+                document_ids=doc_ids,
+                limit=5,
+            )
+            
+            for i, chunk in enumerate(relevant_chunks, 1):
+                context_texts.append(f"[Source {i}: {chunk['document_name']}]\n{chunk['content']}")
+                sources.append(SourceChunk(
+                    document_id=uuid.UUID(chunk['document_id']),
+                    document_name=chunk['document_name'],
+                    chunk_id=uuid.UUID(chunk['chunk_id']),
+                    content=chunk['content'][:200] + "..." if len(chunk['content']) > 200 else chunk['content'],
+                    similarity_score=chunk['score'],
+                ))
+        except Exception as e:
+            logger.error("Vector search failed in chat", error=str(e))
+    
+    # Use orchestrator for smart routing
+    orchestrator = get_orchestrator()
+    
+    # Determine mode
+    orchestrator_mode = OrchestratorMode.AUTO
+    agent_name = None
+    
+    mode_to_agent = {
+        QueryMode.RAG: "rag_query",
+        QueryMode.SUMMARIZE: "summarizer",
+        QueryMode.ANALYZE: "document_analyzer",
+        QueryMode.SQL: "sql_generator",
+    }
+    
+    if chat_data.mode != QueryMode.AUTO:
+        orchestrator_mode = OrchestratorMode.MANUAL
+        agent_name = mode_to_agent.get(chat_data.mode, "rag_query")
     
     try:
-        # Get LLM service
-        llm_service = get_llm_service()
-        
-        # Generate response using LLM
-        system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
-You are having a conversation with a user. Be friendly, helpful, and informative.
-Answer questions clearly and provide relevant details when asked."""
-
-        response_text = await llm_service.generate(
-            prompt=chat_data.message,
-            system_prompt=system_prompt,
-            temperature=0.7,
-            max_tokens=1024,
+        result = await orchestrator.execute(
+            query=chat_data.message,
+            context=context_texts if context_texts else None,
+            mode=orchestrator_mode,
+            agent_name=agent_name,
         )
+        
+        response_text = result.get("response", "No response generated")
+        agent_used = result.get("agent_used", "rag_query")
+        routing_info = result.get("routing", {})
+        
     except Exception as e:
-        logger.error("LLM generation failed", error=str(e))
+        logger.error("Orchestrator execution failed in chat", error=str(e))
         response_text = f"I apologize, but I encountered an error processing your message. Please try again. Error: {str(e)}"
+        agent_used = "error"
+        routing_info = {}
+    
+    execution_time_ms = (time.time() - start_time) * 1000
     
     # Save query to database
     query_record = await query_repo.create({
         "user_id": current_user.id,
         "query_text": chat_data.message,
         "response_text": response_text,
-        "agent_used": "document_analyzer",
+        "agent_used": agent_used,
         "context_used": [],
+        "response_time_ms": execution_time_ms,
+    })
+    
+    # Log agent execution
+    await agent_log_repo.create({
+        "agent_name": agent_used,
+        "action": "chat",
+        "input_data": {"message": chat_data.message[:500], "mode": chat_data.mode.value},
+        "output_data": {"response_preview": response_text[:500]},
+        "status": "completed",
+        "execution_time_ms": execution_time_ms,
     })
     
     await db.commit()
     
+    # Build routing info for response
+    routing_response = None
+    if routing_info:
+        routing_response = RoutingInfo(
+            selected_agent=routing_info.get("agent", agent_used),
+            confidence=routing_info.get("confidence", 1.0),
+            reason=routing_info.get("reason", "Direct execution"),
+        )
+    
     return ChatResponse(
         message_id=query_record.id,
         response=response_text,
-        context_used=[],
+        context_used=sources,
+        agent_used=agent_used,
+        routing=routing_response,
     )
 
 

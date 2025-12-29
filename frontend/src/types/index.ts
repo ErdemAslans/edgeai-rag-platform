@@ -65,6 +65,14 @@ export interface Message {
   timestamp: string;
   agent?: string;
   sources?: SourceReference[];
+  routing?: RoutingInfo;
+  executionTime?: number;
+}
+
+export interface RoutingInfo {
+  selected_agent: string;
+  confidence: number;
+  reason: string;
 }
 
 export interface QueryResponse {
@@ -74,7 +82,11 @@ export interface QueryResponse {
   sources: SourceReference[];
   agent_used: string;
   created_at: string;
+  routing?: RoutingInfo;
+  execution_time_ms?: number;
 }
+
+export type QueryMode = 'auto' | 'rag' | 'summarize' | 'analyze' | 'sql';
 
 export interface ChatHistory {
   id: string;
@@ -88,6 +100,7 @@ export interface Agent {
   name: string;
   description: string;
   status: 'active' | 'inactive';
+  capabilities?: string[];
 }
 
 export interface AgentExecution {
