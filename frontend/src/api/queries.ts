@@ -1,5 +1,5 @@
 import api from './client';
-import { QueryResponse, ChatHistory, Message, QueryMode, RoutingInfo } from '@/types';
+import { QueryResponse, ChatHistory, QueryMode } from '@/types';
 
 interface QueryHistoryAPIResponse {
   queries: Array<{
@@ -24,13 +24,6 @@ interface QueryHistoryAPIResponse {
   total: number;
   skip: number;
   limit: number;
-}
-
-interface AskQuestionOptions {
-  query: string;
-  documentIds?: string[];
-  mode?: QueryMode;
-  agentName?: string;
 }
 
 interface QueryAPIResponse {
@@ -122,7 +115,7 @@ export const getChatHistory = async (): Promise<ChatHistory[]> => {
   const response = await api.get<QueryHistoryAPIResponse>('/queries/history');
   // Convert query history to chat history format
   // Group by date or create single conversations from queries
-  return response.data.queries.map((q, index) => ({
+  return response.data.queries.map((q) => ({
     id: q.query_id,
     title: q.query.slice(0, 50) + (q.query.length > 50 ? '...' : ''),
     messages: [

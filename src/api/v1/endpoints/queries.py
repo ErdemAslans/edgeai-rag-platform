@@ -13,6 +13,7 @@ from src.api.v1.schemas.queries import (
     QueryRequest,
     QueryResponse,
     QueryMode,
+    AgentFramework,
     ChatRequest,
     ChatResponse,
     SQLQueryRequest,
@@ -28,6 +29,7 @@ from src.db.repositories.agent_log import AgentLogRepository
 from src.services.llm_service import get_llm_service
 from src.services.embedding_service import get_embedding_service
 from src.agents import get_orchestrator, OrchestratorMode, AgentType
+from src.agents import get_hybrid_orchestrator, HybridFramework, HybridAgentType
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -140,48 +142,125 @@ async def ask_question(
         # Continue without context
     
     # Determine orchestrator mode and agent based on query mode
-    orchestrator = get_orchestrator()
-    orchestrator_mode = OrchestratorMode.AUTO
     agent_name = query_data.agent_name
+    framework_used = None
+    reasoning_trace = None
+    phases = None
     
-    # Map query mode to agent name if specific mode selected
+    # Extended mode to agent mapping including all frameworks
     mode_to_agent = {
-        QueryMode.RAG: "rag_query",
-        QueryMode.SUMMARIZE: "summarizer",
-        QueryMode.ANALYZE: "document_analyzer",
-        QueryMode.SQL: "sql_generator",
+        QueryMode.RAG: ("rag_query", HybridFramework.CUSTOM),
+        QueryMode.SUMMARIZE: ("summarizer", HybridFramework.CUSTOM),
+        QueryMode.ANALYZE: ("document_analyzer", HybridFramework.CUSTOM),
+        QueryMode.SQL: ("sql_generator", HybridFramework.CUSTOM),
+        # LangGraph modes
+        QueryMode.LG_RESEARCH: ("lg_research", HybridFramework.LANGGRAPH),
+        QueryMode.LG_ANALYSIS: ("lg_analysis", HybridFramework.LANGGRAPH),
+        QueryMode.LG_REASONING: ("lg_reasoning", HybridFramework.LANGGRAPH),
+        # CrewAI modes
+        QueryMode.CREW_RESEARCH: ("crew_research", HybridFramework.CREWAI),
+        QueryMode.CREW_QA: ("crew_qa", HybridFramework.CREWAI),
+        QueryMode.CREW_CODE_REVIEW: ("crew_code_review", HybridFramework.CREWAI),
+        # GenAI modes
+        QueryMode.GENAI_CHAT: ("genai_conversational", HybridFramework.GENAI),
+        QueryMode.GENAI_TASK: ("genai_task_executor", HybridFramework.GENAI),
+        QueryMode.GENAI_KNOWLEDGE: ("genai_knowledge", HybridFramework.GENAI),
+        QueryMode.GENAI_REASONING: ("genai_reasoning", HybridFramework.GENAI),
+        QueryMode.GENAI_CREATIVE: ("genai_creative", HybridFramework.GENAI),
     }
     
-    if query_data.mode != QueryMode.AUTO:
-        orchestrator_mode = OrchestratorMode.MANUAL
-        agent_name = mode_to_agent.get(query_data.mode, "rag_query")
-    elif query_data.agent_name:
-        orchestrator_mode = OrchestratorMode.MANUAL
+    # Check if we should use hybrid orchestrator
+    use_hybrid = query_data.use_hybrid or query_data.mode in [
+        QueryMode.LG_RESEARCH, QueryMode.LG_ANALYSIS, QueryMode.LG_REASONING,
+        QueryMode.CREW_RESEARCH, QueryMode.CREW_QA, QueryMode.CREW_CODE_REVIEW,
+        QueryMode.GENAI_CHAT, QueryMode.GENAI_TASK, QueryMode.GENAI_KNOWLEDGE,
+        QueryMode.GENAI_REASONING, QueryMode.GENAI_CREATIVE,
+    ]
     
     try:
-        # Execute query through orchestrator
-        result = await orchestrator.execute(
-            query=query_data.query,
-            context=context_texts if context_texts else None,
-            mode=orchestrator_mode,
-            agent_name=agent_name,
-        )
-        
-        response_text = result.get("response", "No response generated")
-        agent_used = result.get("agent_used", "unknown")
-        routing_info = result.get("routing", {})
-        
-        logger.info(
-            "Orchestrator execution completed",
-            agent_used=agent_used,
-            routing_confidence=routing_info.get("confidence", 0),
-            success=result.get("success", False),
-        )
+        if use_hybrid:
+            # Use hybrid orchestrator for multi-framework support
+            hybrid_orchestrator = await get_hybrid_orchestrator()
+            
+            # Determine agent and framework
+            if query_data.mode != QueryMode.AUTO and query_data.mode in mode_to_agent:
+                agent_name, framework = mode_to_agent[query_data.mode]
+                orchestrator_mode = OrchestratorMode.MANUAL
+            elif query_data.agent_name:
+                agent_name = query_data.agent_name
+                framework = HybridFramework(query_data.framework.value) if query_data.framework else None
+                orchestrator_mode = OrchestratorMode.MANUAL
+            else:
+                agent_name = None
+                framework = None
+                orchestrator_mode = OrchestratorMode.AUTO
+            
+            # Build sources for hybrid orchestrator
+            source_data = [
+                {"content": s.content, "document_name": s.document_name, "similarity": s.similarity_score}
+                for s in sources
+            ] if sources else None
+            
+            result = await hybrid_orchestrator.execute(
+                query=query_data.query,
+                context=context_texts if context_texts else None,
+                sources=source_data,
+                mode=orchestrator_mode,
+                agent_name=agent_name,
+                framework=framework,
+            )
+            
+            response_text = result.get("response", "No response generated")
+            agent_used = result.get("agent_used", "unknown")
+            framework_used = result.get("framework", "unknown")
+            routing_info = result.get("routing", {})
+            reasoning_trace = result.get("reasoning_trace")
+            phases = result.get("phases")
+            
+            logger.info(
+                "Hybrid orchestrator execution completed",
+                agent_used=agent_used,
+                framework=framework_used,
+                routing_confidence=routing_info.get("confidence", 0),
+                success=result.get("success", False),
+            )
+        else:
+            # Use original orchestrator for backward compatibility
+            orchestrator = get_orchestrator()
+            orchestrator_mode = OrchestratorMode.AUTO
+            
+            if query_data.mode != QueryMode.AUTO and query_data.mode in mode_to_agent:
+                orchestrator_mode = OrchestratorMode.MANUAL
+                agent_name = mode_to_agent[query_data.mode][0]
+            elif query_data.agent_name:
+                orchestrator_mode = OrchestratorMode.MANUAL
+            
+            result = await orchestrator.execute(
+                query=query_data.query,
+                context=context_texts if context_texts else None,
+                mode=orchestrator_mode,
+                agent_name=agent_name,
+            )
+            
+            response_text = result.get("response", "No response generated")
+            agent_used = result.get("agent_used", "unknown")
+            framework_used = "custom"
+            routing_info = result.get("routing", {})
+            
+            logger.info(
+                "Orchestrator execution completed",
+                agent_used=agent_used,
+                routing_confidence=routing_info.get("confidence", 0),
+                success=result.get("success", False),
+            )
         
     except Exception as e:
         logger.error("Orchestrator execution failed", error=str(e))
+        import traceback
+        logger.error("Traceback", traceback=traceback.format_exc())
         response_text = f"I apologize, but I encountered an error processing your question. Please try again. Error: {str(e)}"
         agent_used = "error"
+        framework_used = "error"
         routing_info = {"agent": "error", "confidence": 0, "reason": str(e)}
     
     execution_time_ms = (time.time() - start_time) * 1000
@@ -224,6 +303,7 @@ async def ask_question(
             selected_agent=routing_info.get("agent", agent_used),
             confidence=routing_info.get("confidence", 1.0),
             reason=routing_info.get("reason", "Direct execution"),
+            framework=routing_info.get("framework", framework_used),
         )
     
     return QueryResponse(
@@ -232,8 +312,11 @@ async def ask_question(
         response=response_text,
         sources=sources,
         agent_used=agent_used,
+        framework=framework_used,
         routing=routing_response,
         execution_time_ms=execution_time_ms,
+        reasoning_trace=reasoning_trace,
+        phases=phases,
     )
 
 

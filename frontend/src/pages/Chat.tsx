@@ -1,20 +1,69 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Send, FileText, X, ChevronDown, Bot, Zap, FileSearch, Database, List } from 'lucide-react';
+import { MessageSquare, Send, FileText, X, ChevronDown, Bot, Zap, FileSearch, Database, List, Brain, Users, Sparkles, GitBranch, Code, MessageCircle, Lightbulb, PenTool } from 'lucide-react';
 import PageContainer from '@/components/layout/PageContainer';
 import MessageBubble from '@/components/chat/MessageBubble';
 import { Button, Card, Spinner } from '@/components/ui';
 import { useChat } from '@/hooks/useChat';
 import { useDocuments } from '@/hooks/useDocuments';
-import { Document, QueryMode } from '@/types';
+import { QueryMode } from '@/types';
 
-// Query mode options with icons and descriptions
-const QUERY_MODES: { value: QueryMode; label: string; description: string; icon: React.ReactNode }[] = [
-  { value: 'auto', label: 'Auto', description: 'Smart routing to best agent', icon: <Zap className="w-4 h-4" /> },
-  { value: 'rag', label: 'RAG Search', description: 'Search documents for answers', icon: <FileSearch className="w-4 h-4" /> },
-  { value: 'summarize', label: 'Summarize', description: 'Create summaries of content', icon: <List className="w-4 h-4" /> },
-  { value: 'analyze', label: 'Analyze', description: 'Deep analysis of documents', icon: <Bot className="w-4 h-4" /> },
-  { value: 'sql', label: 'SQL', description: 'Generate SQL queries', icon: <Database className="w-4 h-4" /> },
+// Query mode categories
+interface ModeCategory {
+  name: string;
+  framework: string;
+  color: string;
+  modes: { value: QueryMode; label: string; description: string; icon: React.ReactNode }[];
+}
+
+const MODE_CATEGORIES: ModeCategory[] = [
+  {
+    name: 'Basic',
+    framework: 'custom',
+    color: 'text-blue-600',
+    modes: [
+      { value: 'auto', label: 'Auto', description: 'Smart routing to best agent', icon: <Zap className="w-4 h-4" /> },
+      { value: 'rag', label: 'RAG Search', description: 'Search documents for answers', icon: <FileSearch className="w-4 h-4" /> },
+      { value: 'summarize', label: 'Summarize', description: 'Create summaries of content', icon: <List className="w-4 h-4" /> },
+      { value: 'analyze', label: 'Analyze', description: 'Deep analysis of documents', icon: <Bot className="w-4 h-4" /> },
+      { value: 'sql', label: 'SQL', description: 'Generate SQL queries', icon: <Database className="w-4 h-4" /> },
+    ]
+  },
+  {
+    name: 'LangGraph',
+    framework: 'langgraph',
+    color: 'text-purple-600',
+    modes: [
+      { value: 'lg_research', label: 'Research', description: 'Iterative research workflow', icon: <Brain className="w-4 h-4" /> },
+      { value: 'lg_analysis', label: 'Analysis', description: 'Structured document analysis', icon: <GitBranch className="w-4 h-4" /> },
+      { value: 'lg_reasoning', label: 'Reasoning', description: 'Step-by-step problem solving', icon: <Lightbulb className="w-4 h-4" /> },
+    ]
+  },
+  {
+    name: 'CrewAI',
+    framework: 'crewai',
+    color: 'text-green-600',
+    modes: [
+      { value: 'crew_research', label: 'Research Crew', description: 'Multi-agent research team', icon: <Users className="w-4 h-4" /> },
+      { value: 'crew_qa', label: 'QA Crew', description: 'Fact-checking Q&A team', icon: <MessageCircle className="w-4 h-4" /> },
+      { value: 'crew_code_review', label: 'Code Review', description: 'Code analysis team', icon: <Code className="w-4 h-4" /> },
+    ]
+  },
+  {
+    name: 'GenAI',
+    framework: 'genai',
+    color: 'text-orange-600',
+    modes: [
+      { value: 'genai_chat', label: 'Chat', description: 'Natural conversation', icon: <MessageCircle className="w-4 h-4" /> },
+      { value: 'genai_task', label: 'Task', description: 'Complex task execution', icon: <Zap className="w-4 h-4" /> },
+      { value: 'genai_knowledge', label: 'Knowledge', description: 'RAG-enhanced Q&A', icon: <Brain className="w-4 h-4" /> },
+      { value: 'genai_reasoning', label: 'Reasoning', description: 'Chain-of-thought reasoning', icon: <Lightbulb className="w-4 h-4" /> },
+      { value: 'genai_creative', label: 'Creative', description: 'Creative content generation', icon: <PenTool className="w-4 h-4" /> },
+    ]
+  },
 ];
+
+// Flatten all modes for easy lookup
+const ALL_MODES = MODE_CATEGORIES.flatMap(cat => cat.modes);
 
 const Chat = () => {
   const {
@@ -36,7 +85,8 @@ const Chat = () => {
   const processedDocuments = documents?.filter(d => d.status === 'completed') || [];
   
   // Get current mode info
-  const currentModeInfo = QUERY_MODES.find(m => m.value === selectedMode) || QUERY_MODES[0];
+  const currentModeInfo = ALL_MODES.find(m => m.value === selectedMode) || ALL_MODES[0];
+  const currentCategory = MODE_CATEGORIES.find(cat => cat.modes.some(m => m.value === selectedMode)) || MODE_CATEGORIES[0];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -87,10 +137,18 @@ const Chat = () => {
                 <span className="text-sm font-medium text-text-primary">
                   Agent Mode:
                 </span>
-                <div className="flex items-center gap-1 px-2 py-1 bg-accent/10 rounded-md">
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-md ${
+                  currentCategory.framework === 'langgraph' ? 'bg-purple-100' :
+                  currentCategory.framework === 'crewai' ? 'bg-green-100' :
+                  currentCategory.framework === 'genai' ? 'bg-orange-100' :
+                  'bg-accent/10'
+                }`}>
                   {currentModeInfo.icon}
-                  <span className="text-sm font-medium text-accent">{currentModeInfo.label}</span>
+                  <span className={`text-sm font-medium ${currentCategory.color}`}>{currentModeInfo.label}</span>
                 </div>
+                <span className={`text-xs px-1.5 py-0.5 rounded ${currentCategory.color} bg-opacity-10`}>
+                  {currentCategory.name}
+                </span>
                 <span className="text-xs text-text-secondary hidden sm:inline">
                   {currentModeInfo.description}
                 </span>
@@ -107,31 +165,44 @@ const Chat = () => {
 
             {/* Mode Picker Dropdown */}
             {showModePicker && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                  {QUERY_MODES.map((mode) => (
-                    <button
-                      key={mode.value}
-                      onClick={() => {
-                        setSelectedMode(mode.value);
-                        setShowModePicker(false);
-                      }}
-                      className={`flex flex-col items-center gap-1 p-3 rounded-lg transition-colors ${
-                        selectedMode === mode.value
-                          ? 'bg-accent text-white'
-                          : 'bg-secondary hover:bg-secondary/80 text-text-primary'
-                      }`}
-                    >
-                      <div className={selectedMode === mode.value ? 'text-white' : 'text-accent'}>
-                        {mode.icon}
-                      </div>
-                      <span className="text-sm font-medium">{mode.label}</span>
-                      <span className={`text-xs ${selectedMode === mode.value ? 'text-white/80' : 'text-text-secondary'}`}>
-                        {mode.description}
+              <div className="mt-3 pt-3 border-t border-border space-y-4">
+                {MODE_CATEGORIES.map((category) => (
+                  <div key={category.name}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-sm font-semibold ${category.color}`}>{category.name}</span>
+                      <span className="text-xs text-text-secondary px-2 py-0.5 bg-secondary rounded-full">
+                        {category.framework}
                       </span>
-                    </button>
-                  ))}
-                </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                      {category.modes.map((mode) => (
+                        <button
+                          key={mode.value}
+                          onClick={() => {
+                            setSelectedMode(mode.value);
+                            setShowModePicker(false);
+                          }}
+                          className={`flex flex-col items-center gap-1 p-3 rounded-lg transition-colors ${
+                            selectedMode === mode.value
+                              ? category.framework === 'langgraph' ? 'bg-purple-600 text-white' :
+                                category.framework === 'crewai' ? 'bg-green-600 text-white' :
+                                category.framework === 'genai' ? 'bg-orange-600 text-white' :
+                                'bg-accent text-white'
+                              : 'bg-secondary hover:bg-secondary/80 text-text-primary'
+                          }`}
+                        >
+                          <div className={selectedMode === mode.value ? 'text-white' : category.color}>
+                            {mode.icon}
+                          </div>
+                          <span className="text-sm font-medium">{mode.label}</span>
+                          <span className={`text-xs text-center ${selectedMode === mode.value ? 'text-white/80' : 'text-text-secondary'}`}>
+                            {mode.description}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </Card>
@@ -237,17 +308,17 @@ const Chat = () => {
                   route your query to the best agent, or select a specific mode above.
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 mt-4">
-                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
-                    🤖 Smart Routing
+                  <span className="px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full">
+                    ⚡ Custom Agents
                   </span>
-                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
-                    📄 RAG Search
+                  <span className="px-2 py-1 bg-purple-100 text-purple-600 text-xs rounded-full">
+                    🔀 LangGraph Workflows
                   </span>
-                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
-                    📝 Summarization
+                  <span className="px-2 py-1 bg-green-100 text-green-600 text-xs rounded-full">
+                    👥 CrewAI Teams
                   </span>
-                  <span className="px-2 py-1 bg-accent/10 text-accent text-xs rounded-full">
-                    🔍 Analysis
+                  <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs rounded-full">
+                    ✨ GenAI Agents
                   </span>
                 </div>
                 {processedDocuments.length > 0 && (
@@ -314,8 +385,8 @@ const Chat = () => {
               <p className="text-xs text-text-secondary">
                 Press Enter to send, Shift + Enter for new line
               </p>
-              <span className="text-xs text-accent">
-                • Mode: {currentModeInfo.label}
+              <span className={`text-xs ${currentCategory.color}`}>
+                • {currentCategory.name}: {currentModeInfo.label}
               </span>
             </div>
             {currentConversation.length > 0 && (

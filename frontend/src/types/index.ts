@@ -64,15 +64,20 @@ export interface Message {
   content: string;
   timestamp: string;
   agent?: string;
+  framework?: AgentFramework;
   sources?: SourceReference[];
   routing?: RoutingInfo;
   executionTime?: number;
+  reasoningTrace?: string;
 }
+
+export type AgentFramework = 'custom' | 'langgraph' | 'crewai' | 'genai';
 
 export interface RoutingInfo {
   selected_agent: string;
   confidence: number;
   reason: string;
+  framework?: AgentFramework;
 }
 
 export interface QueryResponse {
@@ -81,12 +86,34 @@ export interface QueryResponse {
   response: string;
   sources: SourceReference[];
   agent_used: string;
+  framework?: AgentFramework;
   created_at: string;
   routing?: RoutingInfo;
   execution_time_ms?: number;
+  reasoning_trace?: string;
+  phases?: Record<string, unknown>;
 }
 
-export type QueryMode = 'auto' | 'rag' | 'summarize' | 'analyze' | 'sql';
+export type QueryMode =
+  | 'auto'
+  | 'rag'
+  | 'summarize'
+  | 'analyze'
+  | 'sql'
+  // LangGraph modes
+  | 'lg_research'
+  | 'lg_analysis'
+  | 'lg_reasoning'
+  // CrewAI modes
+  | 'crew_research'
+  | 'crew_qa'
+  | 'crew_code_review'
+  // GenAI modes
+  | 'genai_chat'
+  | 'genai_task'
+  | 'genai_knowledge'
+  | 'genai_reasoning'
+  | 'genai_creative';
 
 export interface ChatHistory {
   id: string;
@@ -100,7 +127,10 @@ export interface Agent {
   name: string;
   description: string;
   status: 'active' | 'inactive';
+  framework?: AgentFramework;
   capabilities?: string[];
+  workflow_type?: string;
+  crew_agents?: string[];
 }
 
 export interface AgentExecution {

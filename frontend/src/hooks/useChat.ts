@@ -9,7 +9,6 @@ export const useChat = () => {
   const {
     currentConversation,
     conversations,
-    setCurrentConversation,
     addMessage,
     setConversations,
     setCurrentConversationId,
@@ -67,7 +66,7 @@ export const useChat = () => {
     onSuccess: (data: ChatHistory[]) => {
       setConversations(data);
     },
-    onError: (error: any) => {
+    onError: () => {
       addToast('Failed to load chat history.', 'error');
     },
   });
