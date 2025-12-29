@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # API
     API_V1_PREFIX: str = "/api/v1"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173", "http://localhost:8000"]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Groq
     GROQ_API_KEY: str | None = None
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "llama-3.1-70b-versatile"
 
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"

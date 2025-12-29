@@ -37,7 +37,7 @@ export interface Document {
   filename: string;
   file_type: string;
   file_size: number;
-  status: 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   chunk_count: number;
   uploaded_at: string;
   user_id: string;

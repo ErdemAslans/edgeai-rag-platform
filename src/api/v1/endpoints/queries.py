@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from src.api.deps import get_db, CurrentUser
 from src.api.v1.schemas.queries import (
@@ -17,8 +18,10 @@ from src.api.v1.schemas.queries import (
     QueryHistoryResponse,
 )
 from src.db.repositories.query import QueryRepository
+from src.services.llm_service import get_llm_service, LLMService
 
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 @router.post("/ask", response_model=QueryResponse)
@@ -30,14 +33,25 @@ async def ask_question(
     """Ask a question using RAG (Retrieval Augmented Generation)."""
     query_repo = QueryRepository(db)
     
-    # TODO: Implement RAG pipeline
-    # 1. Route query through QueryRouter agent
-    # 2. Perform vector search for relevant chunks
-    # 3. Build context from retrieved chunks
-    # 4. Generate response using LLM
-    
-    # Placeholder response
-    response_text = f"This is a placeholder response for: {query_data.query}"
+    try:
+        # Get LLM service
+        llm_service = get_llm_service()
+        
+        # Generate response using LLM
+        system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
+You help users with their questions about documents and data.
+Be concise, accurate, and helpful in your responses.
+If you don't know something, say so clearly."""
+
+        response_text = await llm_service.generate(
+            prompt=query_data.query,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+    except Exception as e:
+        logger.error("LLM generation failed", error=str(e))
+        response_text = f"I apologize, but I encountered an error processing your question. Please try again. Error: {str(e)}"
     
     # Save query to database
     query_record = await query_repo.create({
@@ -47,6 +61,8 @@ async def ask_question(
         "agent_used": "query_router",
         "context_used": [],
     })
+    
+    await db.commit()
     
     return QueryResponse(
         query_id=query_record.id,
@@ -66,13 +82,24 @@ async def chat_with_context(
     """Chat with context from previous messages."""
     query_repo = QueryRepository(db)
     
-    # TODO: Implement chat with context
-    # 1. Get conversation history
-    # 2. Build context from history and documents
-    # 3. Generate response using LLM
-    
-    # Placeholder response
-    response_text = f"Chat response for: {chat_data.message}"
+    try:
+        # Get LLM service
+        llm_service = get_llm_service()
+        
+        # Generate response using LLM
+        system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
+You are having a conversation with a user. Be friendly, helpful, and informative.
+Answer questions clearly and provide relevant details when asked."""
+
+        response_text = await llm_service.generate(
+            prompt=chat_data.message,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+    except Exception as e:
+        logger.error("LLM generation failed", error=str(e))
+        response_text = f"I apologize, but I encountered an error processing your message. Please try again. Error: {str(e)}"
     
     # Save query to database
     query_record = await query_repo.create({
@@ -82,6 +109,8 @@ async def chat_with_context(
         "agent_used": "document_analyzer",
         "context_used": [],
     })
+    
+    await db.commit()
     
     return ChatResponse(
         message_id=query_record.id,
@@ -99,13 +128,37 @@ async def natural_language_to_sql(
     """Convert natural language to SQL query."""
     query_repo = QueryRepository(db)
     
-    # TODO: Implement SQL generation
-    # 1. Use SQLGenerator agent
-    # 2. Validate generated SQL
-    # 3. Optionally execute SQL
-    
-    # Placeholder response
-    generated_sql = f"SELECT * FROM table WHERE condition -- Generated from: {sql_request.query}"
+    try:
+        # Get LLM service
+        llm_service = get_llm_service()
+        
+        system_prompt = """You are an expert SQL query generator. Convert natural language
+questions into valid SQL queries. Follow these rules:
+- Generate only valid SQL syntax
+- Use appropriate JOINs when needed
+- Add comments explaining the query logic
+- Consider performance implications
+- Output the SQL query followed by a brief explanation"""
+
+        prompt = f"Convert this to SQL: {sql_request.query}"
+        if sql_request.schema_context:
+            prompt += f"\n\nDatabase schema context: {sql_request.schema_context}"
+
+        generated_response = await llm_service.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=0.1,
+            max_tokens=512,
+        )
+        
+        # Try to extract SQL from response
+        generated_sql = generated_response
+        explanation = "SQL query generated from natural language"
+        
+    except Exception as e:
+        logger.error("SQL generation failed", error=str(e))
+        generated_sql = f"-- Error generating SQL: {str(e)}"
+        explanation = f"Error: {str(e)}"
     
     # Save query to database
     query_record = await query_repo.create({
@@ -116,11 +169,13 @@ async def natural_language_to_sql(
         "context_used": [],
     })
     
+    await db.commit()
+    
     return SQLQueryResponse(
         query_id=query_record.id,
         natural_language=sql_request.query,
         generated_sql=generated_sql,
-        explanation="Placeholder explanation for the generated SQL",
+        explanation=explanation,
         executed=False,
         results=None,
     )

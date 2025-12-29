@@ -19,13 +19,14 @@ class DocumentResponse(DocumentBase):
     
     id: uuid.UUID
     user_id: uuid.UUID
-    storage_path: str
+    file_path: str
     file_size: int
     status: str
-    metadata: Dict[str, Any] = {}
+    chunk_count: int = 0
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict, alias="doc_metadata")
     created_at: datetime
-    updated_at: datetime
-    processed_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class DocumentListResponse(BaseModel):

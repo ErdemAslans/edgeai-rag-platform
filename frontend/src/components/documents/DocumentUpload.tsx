@@ -34,9 +34,11 @@ const DocumentUpload = ({ onUploadComplete }: DocumentUploadProps) => {
   };
 
   const handleFileSelect = (file: File) => {
-    const validTypes = ['application/pdf', 'text/plain', 'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+    // Validate by file extension instead of MIME type for better compatibility
+    const validExtensions = ['pdf', 'txt', 'csv', 'xlsx', 'xls'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
     
-    if (!validTypes.includes(file.type)) {
+    if (!validExtensions.includes(fileExtension)) {
       addToast('Invalid file type. Please upload PDF, TXT, CSV, or Excel files.', 'error');
       return;
     }

@@ -216,3 +216,22 @@ class DocumentRepository(BaseRepository[Document]):
         result = await self.session.execute(stmt)
         await self.session.flush()
         return result.rowcount
+
+    async def get_chunks(self, document_id: uuid.UUID) -> List:
+        """Get all chunks for a document.
+
+        Args:
+            document_id: The UUID of the document.
+
+        Returns:
+            List of chunk instances.
+        """
+        from src.db.models.chunk import Chunk
+
+        stmt = (
+            select(Chunk)
+            .where(Chunk.document_id == document_id)
+            .order_by(Chunk.chunk_index.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

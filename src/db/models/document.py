@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, TYPE_CHECKING
 
-from sqlalchemy import String, BigInteger, DateTime, ForeignKey, Text
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,12 +39,12 @@ class Document(Base):
         String(100),
         nullable=False,
     )
-    storage_path: Mapped[str] = mapped_column(
+    file_path: Mapped[str] = mapped_column(
         String(1000),
         nullable=False,
     )
     file_size: Mapped[int] = mapped_column(
-        BigInteger,
+        Integer,
         nullable=False,
     )
     status: Mapped[str] = mapped_column(
@@ -52,6 +52,15 @@ class Document(Base):
         default="pending",
         nullable=False,
         index=True,
+    )
+    chunk_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
     doc_metadata: Mapped[Dict[str, Any]] = mapped_column(
         "metadata",  # Use 'metadata' as column name in DB
@@ -64,15 +73,10 @@ class Document(Base):
         default=datetime.utcnow,
         nullable=False,
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )
-    processed_at: Mapped[datetime | None] = mapped_column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+        onupdate=datetime.utcnow,
     )
 
     # Relationships

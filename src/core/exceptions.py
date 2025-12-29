@@ -42,6 +42,20 @@ class NotFoundError(EdgeAIException):
         super().__init__(message, code="NOT_FOUND", details={"resource": resource, "id": resource_id})
 
 
+class UserNotFoundError(EdgeAIException):
+    """Raised when a user is not found."""
+
+    def __init__(self, message: str = "User not found", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, code="USER_NOT_FOUND", details=details)
+
+
+class UserAlreadyExistsError(EdgeAIException):
+    """Raised when trying to create a user that already exists."""
+
+    def __init__(self, message: str = "User already exists", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, code="USER_ALREADY_EXISTS", details=details)
+
+
 class ValidationError(EdgeAIException):
     """Raised when validation fails."""
 
@@ -104,3 +118,17 @@ class RateLimitError(EdgeAIException):
         if retry_after:
             details["retry_after"] = retry_after
         super().__init__(message, code="RATE_LIMIT_ERROR", details=details)
+
+
+class DocumentNotFoundError(EdgeAIException):
+    """Raised when a document is not found."""
+
+    def __init__(self, message: str = "Document not found", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, code="DOCUMENT_NOT_FOUND", details=details)
+
+
+class StorageError(EdgeAIException):
+    """Raised when storage operations fail."""
+
+    def __init__(self, message: str = "Storage operation failed", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, code="STORAGE_ERROR", details=details)

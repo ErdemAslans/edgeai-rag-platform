@@ -65,10 +65,10 @@ async def upload_document(
     
     # Ensure upload directory exists
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    storage_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
+    file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
     
     # Save file
-    with open(storage_path, "wb") as f:
+    with open(file_path, "wb") as f:
         f.write(content)
     
     # Create document record
@@ -77,7 +77,7 @@ async def upload_document(
         "user_id": current_user.id,
         "filename": file.filename,
         "content_type": file.content_type or "application/octet-stream",
-        "storage_path": storage_path,
+        "file_path": file_path,
         "file_size": len(content),
     })
     
@@ -160,8 +160,8 @@ async def delete_document(
         )
     
     # Delete file from storage
-    if os.path.exists(document.storage_path):
-        os.remove(document.storage_path)
+    if os.path.exists(document.file_path):
+        os.remove(document.file_path)
     
     # Delete document record (cascades to chunks)
     await doc_repo.delete(document_id)
