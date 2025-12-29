@@ -61,3 +61,19 @@ export const getDocuments = async (): Promise<Document[]> => {
 export const deleteDocument = async (id: string): Promise<void> => {
   await api.delete(`/documents/${id}`);
 };
+
+export const processDocument = async (id: string): Promise<{ status: string; message: string }> => {
+  const response = await api.post<{ document_id: string; status: string; message: string }>(`/documents/${id}/process`);
+  return {
+    status: response.data.status,
+    message: response.data.message,
+  };
+};
+
+export const getDocumentStatus = async (id: string): Promise<{ status: string; message: string }> => {
+  const response = await api.get<{ document_id: string; status: string; message: string }>(`/documents/${id}/status`);
+  return {
+    status: response.data.status,
+    message: response.data.message,
+  };
+};

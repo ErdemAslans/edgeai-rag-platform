@@ -1,4 +1,4 @@
-"""Query and chat endpoints."""
+"""Query and chat endpoints with RAG support."""
 
 import uuid
 from typing import List, Optional
@@ -16,12 +16,54 @@ from src.api.v1.schemas.queries import (
     SQLQueryRequest,
     SQLQueryResponse,
     QueryHistoryResponse,
+    SourceChunk,
 )
 from src.db.repositories.query import QueryRepository
-from src.services.llm_service import get_llm_service, LLMService
+from src.db.repositories.chunk import ChunkRepository
+from src.db.repositories.document import DocumentRepository
+from src.services.llm_service import get_llm_service
+from src.services.embedding_service import get_embedding_service
 
 router = APIRouter()
 logger = structlog.get_logger()
+
+
+async def search_relevant_chunks(
+    db: AsyncSession,
+    query: str,
+    user_id: uuid.UUID,
+    document_ids: Optional[List[uuid.UUID]] = None,
+    limit: int = 5,
+) -> List[dict]:
+    """Search for relevant document chunks using vector similarity."""
+    embedding_service = get_embedding_service()
+    chunk_repo = ChunkRepository(db)
+    doc_repo = DocumentRepository(db)
+    
+    # Generate embedding for the query
+    query_embedding = await embedding_service.embed_text(query)
+    
+    # Search for similar chunks
+    similar_chunks = await chunk_repo.search_similar(
+        embedding=query_embedding,
+        limit=limit,
+        user_id=user_id,
+        document_ids=document_ids,
+    )
+    
+    # Format results with document info
+    results = []
+    for chunk in similar_chunks:
+        doc = await doc_repo.get_by_id(chunk.document_id)
+        results.append({
+            "chunk_id": str(chunk.id),
+            "document_id": str(chunk.document_id),
+            "document_name": doc.filename if doc else "Unknown",
+            "content": chunk.content,
+            "score": getattr(chunk, 'similarity_score', 0.0),
+        })
+    
+    return results
 
 
 @router.post("/ask", response_model=QueryResponse)
@@ -33,18 +75,72 @@ async def ask_question(
     """Ask a question using RAG (Retrieval Augmented Generation)."""
     query_repo = QueryRepository(db)
     
+    # Search for relevant document chunks
+    sources = []
+    context_text = ""
+    
+    try:
+        # Convert document_ids to UUIDs if provided
+        doc_ids = None
+        if query_data.document_ids:
+            doc_ids = [uuid.UUID(d) if isinstance(d, str) else d for d in query_data.document_ids]
+        
+        # Search for relevant chunks
+        relevant_chunks = await search_relevant_chunks(
+            db=db,
+            query=query_data.query,
+            user_id=current_user.id,
+            document_ids=doc_ids,
+            limit=5,
+        )
+        
+        if relevant_chunks:
+            # Build context from chunks
+            context_parts = []
+            for i, chunk in enumerate(relevant_chunks, 1):
+                context_parts.append(f"[Source {i}: {chunk['document_name']}]\n{chunk['content']}")
+                sources.append(SourceChunk(
+                    document_id=uuid.UUID(chunk['document_id']),
+                    document_name=chunk['document_name'],
+                    chunk_id=uuid.UUID(chunk['chunk_id']),
+                    content=chunk['content'][:200] + "..." if len(chunk['content']) > 200 else chunk['content'],
+                    similarity_score=chunk['score'],
+                ))
+            
+            context_text = "\n\n".join(context_parts)
+            logger.info("Found relevant chunks", count=len(relevant_chunks))
+    except Exception as e:
+        logger.error("Vector search failed", error=str(e))
+        # Continue without context
+    
     try:
         # Get LLM service
         llm_service = get_llm_service()
         
-        # Generate response using LLM
-        system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
+        # Build prompt with context
+        if context_text:
+            system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
+You answer questions based on the provided document context.
+Always cite your sources when answering.
+If the context doesn't contain relevant information, say so clearly."""
+
+            prompt = f"""Based on the following document excerpts, please answer the question.
+
+CONTEXT:
+{context_text}
+
+QUESTION: {query_data.query}
+
+Please provide a comprehensive answer based on the context above. If the context doesn't contain enough information, acknowledge that."""
+        else:
+            system_prompt = """You are a helpful AI assistant for the EdgeAI RAG Platform.
 You help users with their questions about documents and data.
 Be concise, accurate, and helpful in your responses.
 If you don't know something, say so clearly."""
+            prompt = query_data.query
 
         response_text = await llm_service.generate(
-            prompt=query_data.query,
+            prompt=prompt,
             system_prompt=system_prompt,
             temperature=0.7,
             max_tokens=1024,
@@ -58,8 +154,8 @@ If you don't know something, say so clearly."""
         "user_id": current_user.id,
         "query_text": query_data.query,
         "response_text": response_text,
-        "agent_used": "query_router",
-        "context_used": [],
+        "agent_used": "rag_agent",
+        "context_used": [s.model_dump() for s in sources] if sources else [],
     })
     
     await db.commit()
@@ -68,8 +164,8 @@ If you don't know something, say so clearly."""
         query_id=query_record.id,
         query=query_data.query,
         response=response_text,
-        sources=[],
-        agent_used="query_router",
+        sources=sources,
+        agent_used="rag_agent",
     )
 
 

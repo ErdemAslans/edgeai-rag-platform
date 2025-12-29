@@ -78,6 +78,79 @@ class ChunkRepository(BaseRepository[Chunk]):
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
+    async def search_similar(
+        self,
+        embedding: List[float],
+        limit: int = 5,
+        user_id: uuid.UUID | None = None,
+        document_ids: List[uuid.UUID] | None = None,
+        similarity_threshold: float = 0.3,
+    ) -> List[Chunk]:
+        """Search for similar chunks using vector similarity.
+        
+        Args:
+            embedding: The query embedding vector.
+            limit: Maximum number of results.
+            user_id: Filter by user's documents.
+            document_ids: Filter by specific document IDs.
+            similarity_threshold: Minimum similarity score.
+            
+        Returns:
+            List of similar chunks with similarity_score attribute.
+        """
+        embedding_str = f"[{','.join(map(str, embedding))}]"
+        
+        # Build WHERE clause
+        conditions = ["1 - (c.embedding <=> :embedding) >= :threshold"]
+        if user_id:
+            conditions.append("d.user_id = :user_id")
+        if document_ids:
+            doc_ids_str = ",".join(f"'{str(doc_id)}'" for doc_id in document_ids)
+            conditions.append(f"c.document_id IN ({doc_ids_str})")
+        
+        where_clause = " AND ".join(conditions)
+        
+        query = f"""
+            SELECT
+                c.id, c.document_id, c.chunk_index, c.content,
+                c.embedding, c.metadata, c.token_count, c.created_at,
+                1 - (c.embedding <=> :embedding) as similarity_score
+            FROM chunks c
+            JOIN documents d ON c.document_id = d.id
+            WHERE {where_clause}
+            ORDER BY c.embedding <=> :embedding
+            LIMIT :limit
+        """
+        
+        params = {
+            "embedding": embedding_str,
+            "threshold": similarity_threshold,
+            "limit": limit,
+        }
+        if user_id:
+            params["user_id"] = str(user_id)
+        
+        result = await self.session.execute(text(query), params)
+        rows = result.fetchall()
+        
+        chunks = []
+        for row in rows:
+            chunk = Chunk(
+                id=row.id,
+                document_id=row.document_id,
+                chunk_index=row.chunk_index,
+                content=row.content,
+                embedding=row.embedding,
+                metadata=row.metadata,
+                token_count=row.token_count,
+                created_at=row.created_at,
+            )
+            # Add similarity score as attribute
+            chunk.similarity_score = row.similarity_score
+            chunks.append(chunk)
+        
+        return chunks
+
     async def similarity_search(
         self,
         query_embedding: List[float],

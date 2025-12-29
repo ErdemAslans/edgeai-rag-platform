@@ -72,7 +72,13 @@ class Settings(BaseSettings):
     # File Upload
     MAX_UPLOAD_SIZE_MB: int = 50
     UPLOAD_DIR: str = "./uploads"
-    ALLOWED_EXTENSIONS: List[str] = ["pdf", "txt"]
+    # Docling supports: PDF, DOCX, PPTX, HTML, images (PNG, JPG, TIFF, BMP)
+    ALLOWED_EXTENSIONS: List[str] = [
+        "pdf", "txt", "md", "json", "csv",  # Basic formats
+        "docx", "pptx", "xlsx", "xls",       # Office formats
+        "html", "htm",                        # Web formats
+        "png", "jpg", "jpeg", "tiff", "bmp"   # Image formats (for OCR)
+    ]
 
     @field_validator("ALLOWED_EXTENSIONS", mode="before")
     @classmethod

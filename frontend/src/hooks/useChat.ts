@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { sendChatMessage, getChatHistory } from '@/api/queries';
+import { askQuestion, getChatHistory } from '@/api/queries';
 import { QueryResponse, ChatHistory } from '@/types';
 import { useChatStore } from '@/stores/chatStore';
 import { useToast } from '@/components/ui/Toast';
@@ -19,9 +19,10 @@ export const useChat = () => {
   } = useChatStore();
 
   const sendMessageMutation = useMutation({
-    mutationFn: async ({ message, conversationId }: { message: string; conversationId?: string }) => {
+    mutationFn: async ({ message, documentIds }: { message: string; documentIds?: string[] }) => {
       setLoading(true);
-      const response = await sendChatMessage(message, conversationId);
+      // Use askQuestion which supports RAG with document_ids
+      const response = await askQuestion(message, documentIds);
       return response;
     },
     onSuccess: (data: QueryResponse, variables) => {
@@ -61,8 +62,8 @@ export const useChat = () => {
     },
   });
 
-  const sendMessage = (message: string, conversationId?: string) => {
-    sendMessageMutation.mutate({ message, conversationId });
+  const sendMessage = (message: string, documentIds?: string[]) => {
+    sendMessageMutation.mutate({ message, documentIds });
   };
 
   const loadHistory = () => {

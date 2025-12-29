@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Search, Filter } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, Play, RefreshCw } from 'lucide-react';
 import PageContainer from '@/components/layout/PageContainer';
 import Header from '@/components/layout/Header';
 import DocumentUpload from '@/components/documents/DocumentUpload';
@@ -11,7 +11,7 @@ import { Document } from '@/types';
 import { formatFileSize } from '@/lib/utils';
 
 const Documents = () => {
-  const { documents, isLoading, uploadDocument, deleteDocument, isUploading } = useDocuments();
+  const { documents, isLoading, uploadDocument, deleteDocument, processDocument, isUploading, isProcessing, refetch } = useDocuments();
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
@@ -121,7 +121,12 @@ const Documents = () => {
             </div>
             <div>
               <p className="text-sm text-text-secondary mb-1">Status</p>
-              <p className="text-text-primary capitalize">{selectedDocument.status}</p>
+              <p className={`capitalize font-medium ${
+                selectedDocument.status === 'completed' ? 'text-green-600' :
+                selectedDocument.status === 'processing' ? 'text-blue-600' :
+                selectedDocument.status === 'failed' ? 'text-red-600' :
+                'text-yellow-600'
+              }`}>{selectedDocument.status}</p>
             </div>
             <div>
               <p className="text-sm text-text-secondary mb-1">Chunks</p>
@@ -133,6 +138,52 @@ const Documents = () => {
                 {new Date(selectedDocument.uploaded_at).toLocaleString()}
               </p>
             </div>
+            
+            {/* Process Button */}
+            {(selectedDocument.status === 'pending' || selectedDocument.status === 'failed') && (
+              <div className="pt-4 border-t border-border">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    processDocument(selectedDocument.id);
+                    setSelectedDocument(null);
+                  }}
+                  disabled={isProcessing}
+                  className="w-full flex items-center justify-center gap-2"
+                >
+                  <Play className="w-4 h-4" />
+                  {isProcessing ? 'Processing...' : 'Process Document'}
+                </Button>
+              </div>
+            )}
+            
+            {/* Reprocess Button */}
+            {selectedDocument.status === 'completed' && (
+              <div className="pt-4 border-t border-border">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    processDocument(selectedDocument.id);
+                    setSelectedDocument(null);
+                  }}
+                  disabled={isProcessing}
+                  className="w-full flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {isProcessing ? 'Processing...' : 'Reprocess Document'}
+                </Button>
+              </div>
+            )}
+            
+            {/* Processing indicator */}
+            {selectedDocument.status === 'processing' && (
+              <div className="pt-4 border-t border-border">
+                <div className="flex items-center justify-center gap-2 text-blue-600">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Document is being processed...</span>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
