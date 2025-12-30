@@ -109,59 +109,59 @@ async def process_document_task(document_id: uuid.UUID) -> None:
             doc_repo = DocumentRepository(db)
             chunk_repo = ChunkRepository(db)
             embedding_service = get_embedding_service()
-        
-        # Get document
-        document = await doc_repo.get_by_id(document_id)
-        if not document:
-            logger.error("Document not found for processing", document_id=str(document_id))
-            return
-        
-        # Update status to processing
-        await doc_repo.update_status(document_id, "processing")
-        await db.commit()
-        
-        # Extract text from document
-        file_path = Path(document.file_path)
-        if not file_path.exists():
-            await doc_repo.update_status(document_id, "failed", "File not found on disk")
+            
+            # Get document
+            document = await doc_repo.get_by_id(document_id)
+            if not document:
+                logger.error("Document not found for processing", document_id=str(document_id))
+                return
+            
+            # Update status to processing
+            await doc_repo.update_status(document_id, "processing")
             await db.commit()
-            return
-        
-        try:
-            text_content = await extract_text_from_file(file_path)
-        except Exception as e:
-            await doc_repo.update_status(document_id, "failed", f"Text extraction failed: {str(e)}")
-            await db.commit()
-            return
-        
-        # Split text into chunks
-        chunks = split_text_into_chunks(text_content)
-        
-        if not chunks:
-            await doc_repo.update_status(document_id, "failed", "No content could be extracted")
-            await db.commit()
-            return
-        
-        # Delete existing chunks if reprocessing
-        await chunk_repo.delete_by_document_id(document_id)
-        
-        # Generate embeddings and create chunks
-        for i, chunk_text in enumerate(chunks):
+            
+            # Extract text from document
+            file_path = Path(document.file_path)
+            if not file_path.exists():
+                await doc_repo.update_status(document_id, "failed", "File not found on disk")
+                await db.commit()
+                return
+            
             try:
-                embedding = await embedding_service.embed_text(chunk_text)
-                await chunk_repo.create({
-                    "document_id": document_id,
-                    "chunk_index": i,
-                    "content": chunk_text,
-                    "embedding": embedding,
-                    "token_count": len(chunk_text.split()),
-                    "chunk_metadata": {"source": document.filename, "page": i // 3 + 1},
-                })
+                text_content = await extract_text_from_file(file_path)
             except Exception as e:
-                logger.error("Failed to process chunk", chunk_index=i, error=str(e))
-                continue
-        
-        # Update document status and chunk count
+                await doc_repo.update_status(document_id, "failed", f"Text extraction failed: {str(e)}")
+                await db.commit()
+                return
+            
+            # Split text into chunks
+            chunks = split_text_into_chunks(text_content)
+            
+            if not chunks:
+                await doc_repo.update_status(document_id, "failed", "No content could be extracted")
+                await db.commit()
+                return
+            
+            # Delete existing chunks if reprocessing
+            await chunk_repo.delete_by_document_id(document_id)
+            
+            # Generate embeddings and create chunks
+            for i, chunk_text in enumerate(chunks):
+                try:
+                    embedding = await embedding_service.embed_text(chunk_text)
+                    await chunk_repo.create({
+                        "document_id": document_id,
+                        "chunk_index": i,
+                        "content": chunk_text,
+                        "embedding": embedding,
+                        "token_count": len(chunk_text.split()),
+                        "chunk_metadata": {"source": document.filename, "page": i // 3 + 1},
+                    })
+                except Exception as e:
+                    logger.error("Failed to process chunk", chunk_index=i, error=str(e))
+                    continue
+            
+            # Update document status and chunk count
             chunk_count = await chunk_repo.count_by_document(document_id)
             await doc_repo.update(document_id, {"chunk_count": chunk_count, "status": "completed"})
             await db.commit()
