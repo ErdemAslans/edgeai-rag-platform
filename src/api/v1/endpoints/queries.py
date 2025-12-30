@@ -2,9 +2,12 @@
 
 import uuid
 import time
-from typing import List, Optional
+import json
+import asyncio
+from typing import List, Optional, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -287,7 +290,6 @@ async def ask_question(
     # Log agent execution
     await agent_log_repo.create({
         "agent_name": agent_used,
-        "action": "query",
         "input_data": {"query": query_data.query[:500], "mode": query_data.mode.value},
         "output_data": {"response_preview": response_text[:500]},
         "status": "completed" if "error" not in response_text.lower() else "failed",
@@ -317,6 +319,145 @@ async def ask_question(
         execution_time_ms=execution_time_ms,
         reasoning_trace=reasoning_trace,
         phases=phases,
+    )
+
+
+@router.post("/ask/stream")
+async def ask_question_stream(
+    query_data: QueryRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Ask a question with streaming response using Server-Sent Events (SSE).
+    
+    Returns a stream of events in the format:
+    - data: {"type": "chunk", "content": "..."}
+    - data: {"type": "sources", "sources": [...]}
+    - data: {"type": "metadata", "agent": "...", "framework": "..."}
+    - data: {"type": "done"}
+    """
+    start_time = time.time()
+    
+    async def generate_stream() -> AsyncGenerator[str, None]:
+        """Generate SSE stream."""
+        query_repo = QueryRepository(db)
+        agent_log_repo = AgentLogRepository(db)
+        
+        # Search for relevant document chunks
+        sources = []
+        context_texts = []
+        
+        try:
+            # Convert document_ids to UUIDs if provided
+            doc_ids = None
+            if query_data.document_ids:
+                doc_ids = [uuid.UUID(d) if isinstance(d, str) else d for d in query_data.document_ids]
+            
+            # Search for relevant chunks
+            relevant_chunks = await search_relevant_chunks(
+                db=db,
+                query=query_data.query,
+                user_id=current_user.id,
+                document_ids=doc_ids,
+                limit=query_data.top_k,
+            )
+            
+            if relevant_chunks:
+                for i, chunk in enumerate(relevant_chunks, 1):
+                    context_texts.append(f"[Source {i}: {chunk['document_name']}]\n{chunk['content']}")
+                    sources.append({
+                        "document_id": chunk['document_id'],
+                        "document_name": chunk['document_name'],
+                        "chunk_id": chunk['chunk_id'],
+                        "content": chunk['content'][:200] + "..." if len(chunk['content']) > 200 else chunk['content'],
+                        "similarity_score": chunk['score'],
+                    })
+                
+                # Send sources event
+                yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+                
+        except Exception as e:
+            logger.error("Vector search failed in stream", error=str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Vector search failed: {str(e)}'})}\n\n"
+        
+        # Get LLM service for streaming
+        try:
+            llm_service = get_llm_service()
+            
+            # Build prompt with context
+            if context_texts:
+                context_str = "\n\n".join(context_texts)
+                prompt = f"""Based on the following context, answer the question.
+
+Context:
+{context_str}
+
+Question: {query_data.query}
+
+Please provide a comprehensive answer based on the context provided. If the context doesn't contain enough information, say so."""
+            else:
+                prompt = query_data.query
+            
+            system_prompt = """You are a helpful AI assistant for document analysis and question answering.
+Provide accurate, well-structured responses based on the context provided.
+If you don't have enough information to answer, say so clearly."""
+            
+            # Stream the response
+            full_response = ""
+            async for chunk in llm_service.generate_stream(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=0.7,
+                max_tokens=1024,
+            ):
+                full_response += chunk
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                await asyncio.sleep(0)  # Allow other tasks to run
+            
+            # Send metadata
+            execution_time_ms = (time.time() - start_time) * 1000
+            yield f"data: {json.dumps({'type': 'metadata', 'agent': 'rag_query', 'framework': 'custom', 'execution_time_ms': execution_time_ms})}\n\n"
+            
+            # Save query to database
+            try:
+                query_record = await query_repo.create({
+                    "user_id": current_user.id,
+                    "query_text": query_data.query,
+                    "response_text": full_response,
+                    "agent_used": "rag_query_stream",
+                    "context_used": sources,
+                    "response_time_ms": execution_time_ms,
+                })
+                
+                await agent_log_repo.create({
+                    "agent_name": "rag_query_stream",
+                    "input_data": {"query": query_data.query[:500]},
+                    "output_data": {"response_preview": full_response[:500]},
+                    "status": "completed",
+                    "execution_time_ms": execution_time_ms,
+                })
+                
+                await db.commit()
+                
+                yield f"data: {json.dumps({'type': 'query_id', 'query_id': str(query_record.id)})}\n\n"
+            except Exception as e:
+                logger.error("Failed to save streaming query", error=str(e))
+            
+        except Exception as e:
+            logger.error("Streaming generation failed", error=str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        
+        # Send done event
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
     )
 
 
@@ -409,7 +550,6 @@ async def chat_with_context(
     # Log agent execution
     await agent_log_repo.create({
         "agent_name": agent_used,
-        "action": "chat",
         "input_data": {"message": chat_data.message[:500], "mode": chat_data.mode.value},
         "output_data": {"response_preview": response_text[:500]},
         "status": "completed",

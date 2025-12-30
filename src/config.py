@@ -94,6 +94,33 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"
+    
+    # Redis (for caching and rate limiting)
+    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_ENABLED: bool = False
+    
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_DEFAULT_REQUESTS: int = 100
+    RATE_LIMIT_DEFAULT_WINDOW: int = 60
+    
+    # Storage (local, s3, gcs)
+    STORAGE_BACKEND: str = "local"
+    
+    # S3 Configuration
+    S3_BUCKET_NAME: str | None = None
+    S3_REGION: str = "us-east-1"
+    S3_ACCESS_KEY: str | None = None
+    S3_SECRET_KEY: str | None = None
+    S3_ENDPOINT_URL: str | None = None  # For S3-compatible services (MinIO)
+    
+    # GCS Configuration
+    GCS_BUCKET_NAME: str | None = None
+    GCS_CREDENTIALS_PATH: str | None = None
+    
+    # Metrics (Prometheus)
+    METRICS_ENABLED: bool = True
+    METRICS_PATH: str = "/metrics"
 
     @property
     def is_development(self) -> bool:

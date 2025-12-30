@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
@@ -16,10 +16,15 @@ from src.db.session import init_db, close_db
 
 logger = structlog.get_logger()
 
+# Global cache service instance
+_cache_service = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
     """Application lifespan manager for startup and shutdown events."""
+    global _cache_service
+    
     # Startup
     setup_logging()
     logger.info(
@@ -32,10 +37,46 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     await init_db()
     logger.info("Database connection pool initialized")
     
+    # Initialize Redis cache if enabled
+    if settings.REDIS_ENABLED:
+        from src.services.cache_service import get_cache_service
+        _cache_service = await get_cache_service()
+        await _cache_service.connect(settings.REDIS_URL)
+        logger.info("Redis cache service initialized")
+    
+    # Initialize storage service
+    from src.services.storage_service import get_storage_service
+    storage = get_storage_service()
+    if settings.STORAGE_BACKEND == "s3" and settings.S3_BUCKET_NAME:
+        storage.configure(
+            backend="s3",
+            bucket_name=settings.S3_BUCKET_NAME,
+            region=settings.S3_REGION,
+            access_key=settings.S3_ACCESS_KEY,
+            secret_key=settings.S3_SECRET_KEY,
+            endpoint_url=settings.S3_ENDPOINT_URL,
+        )
+    elif settings.STORAGE_BACKEND == "gcs" and settings.GCS_BUCKET_NAME:
+        storage.configure(
+            backend="gcs",
+            bucket_name=settings.GCS_BUCKET_NAME,
+            credentials_path=settings.GCS_CREDENTIALS_PATH,
+        )
+    else:
+        storage.configure(backend="local", base_dir=settings.UPLOAD_DIR)
+    
+    logger.info("Storage service initialized", backend=settings.STORAGE_BACKEND)
+    
     yield
     
     # Shutdown
     logger.info("Shutting down EdgeAI RAG Platform")
+    
+    # Disconnect Redis
+    if _cache_service:
+        await _cache_service.disconnect()
+        logger.info("Redis cache service disconnected")
+    
     await close_db()
     logger.info("Database connections closed")
 
@@ -59,6 +100,8 @@ A hybrid edge-cloud platform for:
 - **Vector Search**: Semantic search using sentence-transformers embeddings
 - **Multi-Agent System**: Specialized agents for different tasks
 - **RAG Pipeline**: Context-aware responses using retrieved documents
+- **Rate Limiting**: Configurable rate limiting per endpoint
+- **Metrics**: Prometheus metrics for monitoring
         """,
         version="1.0.0",
         openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
@@ -78,9 +121,27 @@ A hybrid edge-cloud platform for:
 
     # Add request logging middleware
     app.add_middleware(RequestLoggingMiddleware)
+    
+    # Add rate limiting middleware if enabled
+    if settings.RATE_LIMIT_ENABLED:
+        from src.api.rate_limiter import RateLimitMiddleware
+        app.add_middleware(RateLimitMiddleware, cache_service=_cache_service)
+        logger.info("Rate limiting middleware enabled")
 
     # Include API routes
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+    
+    # Metrics endpoint
+    if settings.METRICS_ENABLED:
+        from src.core.metrics import get_metrics_response
+        
+        @app.get(settings.METRICS_PATH, tags=["Monitoring"])
+        async def metrics():
+            """Prometheus metrics endpoint."""
+            content, content_type = get_metrics_response()
+            return Response(content=content, media_type=content_type)
+        
+        logger.info("Metrics endpoint enabled", path=settings.METRICS_PATH)
 
     # Global exception handler to ensure CORS headers are always sent
     @app.exception_handler(Exception)
