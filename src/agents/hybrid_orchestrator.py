@@ -9,6 +9,7 @@ This orchestrator coordinates agents from three different frameworks:
 It provides a unified interface for executing queries across all frameworks.
 """
 
+import asyncio
 import uuid
 import time
 from typing import Dict, Any, List, Optional, Union
@@ -144,7 +145,7 @@ class HybridOrchestrator:
             return
             
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
         
         logger.info("Initializing Hybrid Orchestrator")
         
@@ -629,12 +630,20 @@ class HybridOrchestrator:
 
 # Singleton instance
 _hybrid_orchestrator: Optional[HybridOrchestrator] = None
+_hybrid_orchestrator_lock = asyncio.Lock()
 
 
 async def get_hybrid_orchestrator() -> HybridOrchestrator:
     """Get the hybrid orchestrator singleton instance."""
     global _hybrid_orchestrator
-    if _hybrid_orchestrator is None:
-        _hybrid_orchestrator = HybridOrchestrator()
-        await _hybrid_orchestrator.initialize()
+    
+    # Fast path - already initialized
+    if _hybrid_orchestrator is not None:
+        return _hybrid_orchestrator
+    
+    # Thread-safe initialization with double-check pattern
+    async with _hybrid_orchestrator_lock:
+        if _hybrid_orchestrator is None:
+            _hybrid_orchestrator = HybridOrchestrator()
+            await _hybrid_orchestrator.initialize()
     return _hybrid_orchestrator

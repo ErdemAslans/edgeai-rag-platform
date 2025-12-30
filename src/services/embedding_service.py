@@ -66,9 +66,7 @@ class EmbeddingService:
             List of floats representing the embedding vector.
         """
         # Run in executor to avoid blocking the event loop
-        loop = asyncio.get_event_loop()
-        embedding = await loop.run_in_executor(
-            None,
+        embedding = await asyncio.to_thread(
             self._embed_text_sync,
             text,
         )
@@ -103,9 +101,7 @@ class EmbeddingService:
             return []
 
         # Run in executor to avoid blocking the event loop
-        loop = asyncio.get_event_loop()
-        embeddings = await loop.run_in_executor(
-            None,
+        embeddings = await asyncio.to_thread(
             self._embed_texts_sync,
             texts,
         )

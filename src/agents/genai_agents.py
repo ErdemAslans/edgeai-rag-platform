@@ -41,7 +41,7 @@ class GenAIConversationalAgent:
     async def initialize(self):
         """Initialize the agent."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -116,7 +116,7 @@ class GenAITaskExecutorAgent:
     async def initialize(self):
         """Initialize the agent."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -234,7 +234,7 @@ class GenAIKnowledgeAgent:
     async def initialize(self):
         """Initialize the agent."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -351,7 +351,7 @@ class GenAIReasoningAgent:
     async def initialize(self):
         """Initialize the agent."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -452,7 +452,7 @@ class GenAICreativeAgent:
     async def initialize(self):
         """Initialize the agent."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -522,6 +522,7 @@ Make it different in tone or approach while keeping the same core message."""
 
 # Factory function to get GenAI agents
 _genai_agents: Dict[str, Any] = {}
+_genai_lock = asyncio.Lock()
 
 async def get_genai_agent(agent_type: str) -> Any:
     """
@@ -535,22 +536,29 @@ async def get_genai_agent(agent_type: str) -> Any:
     """
     global _genai_agents
     
-    if agent_type not in _genai_agents:
-        if agent_type == "conversational":
-            agent = GenAIConversationalAgent()
-        elif agent_type == "task_executor":
-            agent = GenAITaskExecutorAgent()
-        elif agent_type == "knowledge":
-            agent = GenAIKnowledgeAgent()
-        elif agent_type == "reasoning":
-            agent = GenAIReasoningAgent()
-        elif agent_type == "creative":
-            agent = GenAICreativeAgent()
-        else:
-            raise ValueError(f"Unknown GenAI agent type: {agent_type}")
-        
-        await agent.initialize()
-        _genai_agents[agent_type] = agent
+    # Fast path - already initialized
+    if agent_type in _genai_agents:
+        return _genai_agents[agent_type]
+    
+    # Thread-safe initialization with double-check pattern
+    async with _genai_lock:
+        # Double-check after acquiring lock
+        if agent_type not in _genai_agents:
+            if agent_type == "conversational":
+                agent = GenAIConversationalAgent()
+            elif agent_type == "task_executor":
+                agent = GenAITaskExecutorAgent()
+            elif agent_type == "knowledge":
+                agent = GenAIKnowledgeAgent()
+            elif agent_type == "reasoning":
+                agent = GenAIReasoningAgent()
+            elif agent_type == "creative":
+                agent = GenAICreativeAgent()
+            else:
+                raise ValueError(f"Unknown GenAI agent type: {agent_type}")
+            
+            await agent.initialize()
+            _genai_agents[agent_type] = agent
     
     return _genai_agents[agent_type]
 

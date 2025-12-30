@@ -42,6 +42,7 @@ def validate_file_size(file_size: int) -> bool:
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: CurrentUser = None,
     db: AsyncSession = Depends(get_db),
@@ -87,19 +88,27 @@ async def upload_document(
         "file_size": len(content),
     })
     
-    # Trigger background document processing
-    background_tasks = BackgroundTasks()
-    background_tasks.add_task(process_document_task, document.id, db)
+    # Commit the document creation before background task
+    await db.commit()
+    
+    # Trigger background document processing (don't pass db session - task creates its own)
+    background_tasks.add_task(process_document_task, document.id)
     
     return DocumentResponse.model_validate(document)
 
 
-async def process_document_task(document_id: uuid.UUID, db: AsyncSession) -> None:
-    """Background task to process a document."""
-    try:
-        doc_repo = DocumentRepository(db)
-        chunk_repo = ChunkRepository(db)
-        embedding_service = get_embedding_service()
+async def process_document_task(document_id: uuid.UUID) -> None:
+    """Background task to process a document.
+    
+    Creates its own database session to avoid issues with request-scoped sessions.
+    """
+    from src.db.session import async_session_factory
+    
+    async with async_session_factory() as db:
+        try:
+            doc_repo = DocumentRepository(db)
+            chunk_repo = ChunkRepository(db)
+            embedding_service = get_embedding_service()
         
         # Get document
         document = await doc_repo.get_by_id(document_id)
@@ -153,19 +162,20 @@ async def process_document_task(document_id: uuid.UUID, db: AsyncSession) -> Non
                 continue
         
         # Update document status and chunk count
-        chunk_count = await chunk_repo.count_by_document(document_id)
-        await doc_repo.update(document_id, {"chunk_count": chunk_count, "status": "completed"})
-        await db.commit()
-        
-        logger.info("Document processed successfully", document_id=str(document_id), chunk_count=chunk_count)
-        
-    except Exception as e:
-        logger.error("Document processing failed", document_id=str(document_id), error=str(e))
-        try:
-            await doc_repo.update_status(document_id, "failed", str(e))
+            chunk_count = await chunk_repo.count_by_document(document_id)
+            await doc_repo.update(document_id, {"chunk_count": chunk_count, "status": "completed"})
             await db.commit()
-        except Exception:
-            pass
+            
+            logger.info("Document processed successfully", document_id=str(document_id), chunk_count=chunk_count)
+            
+        except Exception as e:
+            logger.error("Document processing failed", document_id=str(document_id), error=str(e))
+            try:
+                await db.rollback()
+                await doc_repo.update_status(document_id, "failed", str(e))
+                await db.commit()
+            except Exception:
+                pass
 
 
 async def extract_text_from_file(file_path: Path) -> str:
@@ -502,8 +512,8 @@ async def process_document(
     await doc_repo.update_status(document_id, "pending")
     await db.commit()
     
-    # Trigger background processing
-    background_tasks.add_task(process_document_task, document_id, db)
+    # Trigger background processing (don't pass db session - task creates its own)
+    background_tasks.add_task(process_document_task, document_id)
     
     return DocumentStatusResponse(
         document_id=document_id,
@@ -545,8 +555,8 @@ async def reprocess_document(
     await doc_repo.update_status(document_id, "pending")
     await db.commit()
     
-    # Trigger background processing
-    background_tasks.add_task(process_document_task, document_id, db)
+    # Trigger background processing (don't pass db session - task creates its own)
+    background_tasks.add_task(process_document_task, document_id)
     
     return DocumentStatusResponse(
         document_id=document_id,

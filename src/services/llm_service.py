@@ -166,9 +166,7 @@ class LLMService:
 
         try:
             # Run in executor since ollama library is synchronous
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
+            response = await asyncio.to_thread(
                 lambda: self._client.chat(
                     model=self.model,
                     messages=messages,
@@ -298,8 +296,6 @@ Please provide a helpful answer based on the context above."""
 
         try:
             # Ollama streaming needs special handling
-            loop = asyncio.get_event_loop()
-            
             def stream_sync():
                 return self._client.chat(
                     model=self.model,
@@ -311,7 +307,7 @@ Please provide a helpful answer based on the context above."""
                     stream=True,
                 )
 
-            stream = await loop.run_in_executor(None, stream_sync)
+            stream = await asyncio.to_thread(stream_sync)
             for chunk in stream:
                 if "message" in chunk and "content" in chunk["message"]:
                     yield chunk["message"]["content"]

@@ -48,7 +48,7 @@ class CrewAIAgentWrapper:
     async def initialize(self):
         """Initialize the CrewAI wrapper with LLM service."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     def _get_llm_config(self) -> Dict[str, Any]:
         """Get LLM configuration for CrewAI agents."""
@@ -78,7 +78,7 @@ class CrewAIResearchCrew:
     async def initialize(self):
         """Initialize the research crew."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -188,8 +188,7 @@ class CrewAIResearchCrew:
         )
         
         # Run in executor since CrewAI is synchronous
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, crew.kickoff)
+        result = await asyncio.to_thread(crew.kickoff)
         
         return {
             "result": str(result),
@@ -298,7 +297,7 @@ class CrewAIQACrew:
     async def initialize(self):
         """Initialize the QA crew."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -404,7 +403,7 @@ class CrewAICodeReviewCrew:
     async def initialize(self):
         """Initialize the code review crew."""
         if self.llm_service is None:
-            self.llm_service = await get_llm_service()
+            self.llm_service = get_llm_service()
     
     async def execute(
         self,
@@ -526,6 +525,7 @@ Create a structured report with:
 
 # Factory function to get CrewAI agents
 _crewai_agents: Dict[str, Any] = {}
+_crewai_lock = asyncio.Lock()
 
 async def get_crewai_agent(agent_type: str) -> Any:
     """
@@ -539,18 +539,25 @@ async def get_crewai_agent(agent_type: str) -> Any:
     """
     global _crewai_agents
     
-    if agent_type not in _crewai_agents:
-        if agent_type == "research":
-            agent = CrewAIResearchCrew()
-        elif agent_type == "qa":
-            agent = CrewAIQACrew()
-        elif agent_type == "code_review":
-            agent = CrewAICodeReviewCrew()
-        else:
-            raise ValueError(f"Unknown CrewAI agent type: {agent_type}")
-        
-        await agent.initialize()
-        _crewai_agents[agent_type] = agent
+    # Fast path - already initialized
+    if agent_type in _crewai_agents:
+        return _crewai_agents[agent_type]
+    
+    # Thread-safe initialization with double-check pattern
+    async with _crewai_lock:
+        # Double-check after acquiring lock
+        if agent_type not in _crewai_agents:
+            if agent_type == "research":
+                agent = CrewAIResearchCrew()
+            elif agent_type == "qa":
+                agent = CrewAIQACrew()
+            elif agent_type == "code_review":
+                agent = CrewAICodeReviewCrew()
+            else:
+                raise ValueError(f"Unknown CrewAI agent type: {agent_type}")
+            
+            await agent.initialize()
+            _crewai_agents[agent_type] = agent
     
     return _crewai_agents[agent_type]
 

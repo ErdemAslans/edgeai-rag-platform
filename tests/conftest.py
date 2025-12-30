@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 from src.main import app
 from src.db.base import Base
-from src.db.session import get_session
+from src.db.session import get_async_session
 from src.config import settings
 
 
@@ -63,7 +63,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
-    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_async_session] = override_get_session
     
     async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
