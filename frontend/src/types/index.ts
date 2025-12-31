@@ -1,11 +1,23 @@
+export interface Role {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: string[];
+  created_at: string;
+}
+
 export interface User {
   id: string;
   email: string;
   full_name: string | null;
   is_active: boolean;
   is_superuser: boolean;
+  is_email_verified: boolean;
+  two_factor_enabled: boolean;
   created_at: string;
   updated_at: string;
+  roles: Role[];
+  permissions: string[];
 }
 
 export interface TokenResponse {
