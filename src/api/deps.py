@@ -1,6 +1,6 @@
 """Dependency injection for FastAPI endpoints."""
 
-from typing import AsyncGenerator, Annotated
+from typing import AsyncGenerator, Annotated, Callable, List
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,7 +11,6 @@ from src.core.security import verify_token
 from src.db.models.user import User
 from src.db.repositories.user import UserRepository
 
-# Security scheme
 security = HTTPBearer()
 
 
@@ -75,7 +74,62 @@ async def get_current_active_superuser(
     return current_user
 
 
-# Type aliases for cleaner dependency injection
+async def get_verified_user(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """Get current user and verify their email is verified."""
+    if not current_user.is_email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required",
+        )
+    return current_user
+
+
+def require_permission(permission: str) -> Callable:
+    """Create a dependency that requires a specific permission."""
+    async def permission_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        if not current_user.has_permission(permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission '{permission}' required",
+            )
+        return current_user
+    return permission_checker
+
+
+def require_role(role_name: str) -> Callable:
+    """Create a dependency that requires a specific role."""
+    async def role_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        if not current_user.has_role(role_name):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Role '{role_name}' required",
+            )
+        return current_user
+    return role_checker
+
+
+def require_any_permission(permissions: List[str]) -> Callable:
+    """Create a dependency that requires any of the given permissions."""
+    async def permission_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        for permission in permissions:
+            if current_user.has_permission(permission):
+                return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"One of permissions {permissions} required",
+        )
+    return permission_checker
+
+
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentSuperuser = Annotated[User, Depends(get_current_active_superuser)]
+VerifiedUser = Annotated[User, Depends(get_verified_user)]

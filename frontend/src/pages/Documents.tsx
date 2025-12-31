@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, Play, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import { Search, Filter, Play, RefreshCw, X } from 'lucide-react';
 import PageContainer from '@/components/layout/PageContainer';
 import Header from '@/components/layout/Header';
 import DocumentUpload from '@/components/documents/DocumentUpload';
@@ -10,15 +10,40 @@ import { useDocuments } from '@/hooks/useDocuments';
 import { Document } from '@/types';
 import { formatFileSize } from '@/lib/utils';
 
+type StatusFilter = 'all' | 'pending' | 'processing' | 'completed' | 'failed';
+type TypeFilter = 'all' | 'pdf' | 'txt' | 'docx' | 'xlsx' | 'other';
+
 const Documents = () => {
   const { documents, isLoading, uploadDocument, deleteDocument, processDocument, isUploading, isProcessing, refetch } = useDocuments();
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
 
-  const filteredDocuments = documents.filter((doc) =>
-    doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const getFileTypeCategory = (fileType: string): TypeFilter => {
+    const type = fileType.toLowerCase();
+    if (type.includes('pdf')) return 'pdf';
+    if (type.includes('text') || type.includes('txt')) return 'txt';
+    if (type.includes('word') || type.includes('docx')) return 'docx';
+    if (type.includes('excel') || type.includes('xlsx') || type.includes('spreadsheet')) return 'xlsx';
+    return 'other';
+  };
+
+  const filteredDocuments = documents.filter((doc) => {
+    const matchesSearch = doc.filename.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || doc.status === statusFilter;
+    const matchesType = typeFilter === 'all' || getFileTypeCategory(doc.file_type) === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  const activeFiltersCount = (statusFilter !== 'all' ? 1 : 0) + (typeFilter !== 'all' ? 1 : 0);
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setTypeFilter('all');
+  };
 
   const handleUploadComplete = (response: any) => {
     setIsUploadModalOpen(false);
@@ -60,11 +85,105 @@ const Documents = () => {
             className="w-full pl-10 pr-4 py-2 border border-border rounded-md bg-white text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
           />
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 border border-border rounded-md bg-white text-text-primary hover:bg-gray-50 transition-colors">
-          <Filter className="w-5 h-5" />
-          Filter
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setIsFilterOpen(!isFilterOpen)}
+            className={`flex items-center gap-2 px-4 py-2 border rounded-md bg-white text-text-primary hover:bg-gray-50 transition-colors ${
+              activeFiltersCount > 0 ? 'border-accent' : 'border-border'
+            }`}
+          >
+            <Filter className="w-5 h-5" />
+            Filter
+            {activeFiltersCount > 0 && (
+              <span className="bg-accent text-white text-xs px-1.5 py-0.5 rounded-full">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
+
+          {isFilterOpen && (
+            <div className="absolute right-0 top-12 w-64 bg-white border border-border rounded-md shadow-lg z-10 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="font-medium text-text-primary">Filters</h4>
+                <button
+                  onClick={() => setIsFilterOpen(false)}
+                  className="text-text-secondary hover:text-text-primary"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Status
+                  </label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                    className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="completed">Completed</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    File Type
+                  </label>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
+                    className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    <option value="all">All Types</option>
+                    <option value="pdf">PDF</option>
+                    <option value="txt">Text</option>
+                    <option value="docx">Word</option>
+                    <option value="xlsx">Excel</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                {activeFiltersCount > 0 && (
+                  <button
+                    onClick={clearFilters}
+                    className="w-full text-sm text-accent hover:underline"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {activeFiltersCount > 0 && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-text-secondary">
+          <span>Active filters:</span>
+          {statusFilter !== 'all' && (
+            <span className="px-2 py-1 bg-gray-100 rounded-md flex items-center gap-1">
+              Status: {statusFilter}
+              <button onClick={() => setStatusFilter('all')} className="hover:text-text-primary">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+          {typeFilter !== 'all' && (
+            <span className="px-2 py-1 bg-gray-100 rounded-md flex items-center gap-1">
+              Type: {typeFilter}
+              <button onClick={() => setTypeFilter('all')} className="hover:text-text-primary">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
@@ -74,7 +193,9 @@ const Documents = () => {
         <div className="text-center py-12 text-text-secondary">
           <p>No documents found.</p>
           <p className="mt-2 text-sm">
-            Upload your first document to get started.
+            {documents.length > 0
+              ? 'Try adjusting your search or filters.'
+              : 'Upload your first document to get started.'}
           </p>
         </div>
       ) : (
@@ -139,7 +260,6 @@ const Documents = () => {
               </p>
             </div>
             
-            {/* Process Button */}
             {(selectedDocument.status === 'pending' || selectedDocument.status === 'failed') && (
               <div className="pt-4 border-t border-border">
                 <Button
@@ -157,7 +277,6 @@ const Documents = () => {
               </div>
             )}
             
-            {/* Reprocess Button */}
             {selectedDocument.status === 'completed' && (
               <div className="pt-4 border-t border-border">
                 <Button
@@ -175,7 +294,6 @@ const Documents = () => {
               </div>
             )}
             
-            {/* Processing indicator */}
             {selectedDocument.status === 'processing' && (
               <div className="pt-4 border-t border-border">
                 <div className="flex items-center justify-center gap-2 text-blue-600">

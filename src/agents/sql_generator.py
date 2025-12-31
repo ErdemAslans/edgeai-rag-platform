@@ -1,5 +1,6 @@
 """SQL Generator agent for converting natural language to SQL queries."""
 
+import re
 from typing import Dict, Any, List
 from enum import Enum
 
@@ -12,6 +13,95 @@ class SQLDialect(str, Enum):
     MYSQL = "mysql"
     SQLITE = "sqlite"
     MSSQL = "mssql"
+
+
+class SQLSanitizer:
+    """SQL input sanitization and validation."""
+    
+    DANGEROUS_PATTERNS = [
+        r";\s*DROP\s+",
+        r";\s*DELETE\s+",
+        r";\s*TRUNCATE\s+",
+        r";\s*UPDATE\s+.*SET\s+",
+        r";\s*INSERT\s+",
+        r";\s*ALTER\s+",
+        r";\s*CREATE\s+",
+        r";\s*GRANT\s+",
+        r";\s*REVOKE\s+",
+        r"--",
+        r"/\*.*\*/",
+        r"EXEC\s*\(",
+        r"EXECUTE\s*\(",
+        r"xp_\w+",
+        r"sp_\w+",
+        r"UNION\s+ALL\s+SELECT",
+        r"UNION\s+SELECT",
+        r"INTO\s+OUTFILE",
+        r"INTO\s+DUMPFILE",
+        r"LOAD_FILE\s*\(",
+    ]
+    
+    DANGEROUS_STATEMENTS = ["DROP", "TRUNCATE", "DELETE", "ALTER", "GRANT", "REVOKE"]
+    
+    @classmethod
+    def sanitize_input(cls, text: str) -> str:
+        """Sanitize user input before processing.
+        
+        Args:
+            text: User input text.
+            
+        Returns:
+            Sanitized text.
+        """
+        sanitized = text.strip()
+        sanitized = re.sub(r"['\";]", " ", sanitized)
+        sanitized = re.sub(r"\s+", " ", sanitized)
+        return sanitized[:2000]
+    
+    @classmethod
+    def validate_generated_sql(cls, sql: str, allow_destructive: bool = False) -> tuple[bool, str]:
+        """Validate generated SQL for safety.
+        
+        Args:
+            sql: Generated SQL query.
+            allow_destructive: Whether to allow destructive statements.
+            
+        Returns:
+            Tuple of (is_valid, error_message).
+        """
+        if not sql or not sql.strip():
+            return False, "Empty SQL query"
+        
+        sql_upper = sql.upper()
+        
+        for pattern in cls.DANGEROUS_PATTERNS:
+            if re.search(pattern, sql_upper, re.IGNORECASE):
+                return False, f"Potentially dangerous pattern detected"
+        
+        if not allow_destructive:
+            for stmt in cls.DANGEROUS_STATEMENTS:
+                if re.search(rf'\b{stmt}\b', sql_upper):
+                    return False, f"Destructive statement '{stmt}' not allowed"
+        
+        if sql_upper.count("SELECT") > 5:
+            return False, "Query too complex (too many subqueries)"
+        
+        return True, ""
+    
+    @classmethod
+    def sanitize_identifier(cls, identifier: str) -> str:
+        """Sanitize a SQL identifier (table/column name).
+        
+        Args:
+            identifier: The identifier to sanitize.
+            
+        Returns:
+            Sanitized identifier.
+        """
+        sanitized = re.sub(r'[^a-zA-Z0-9_]', '', identifier)
+        if sanitized and sanitized[0].isdigit():
+            sanitized = '_' + sanitized
+        return sanitized[:64]
 
 
 class SQLGeneratorAgent(BaseAgent):
@@ -68,6 +158,7 @@ Output format:
         schema = input_data.get("schema", "")
         tables = input_data.get("tables", [])
         dialect = input_data.get("dialect", self.dialect.value)
+        allow_destructive = input_data.get("allow_destructive", False)
 
         if not query:
             return {
@@ -75,14 +166,23 @@ Output format:
                 "error": "No query provided",
             }
 
-        # Build the generation prompt
-        prompt = self._build_generation_prompt(query, schema, tables)
+        sanitized_query = SQLSanitizer.sanitize_input(query)
+        sanitized_tables = [SQLSanitizer.sanitize_identifier(t) for t in tables]
 
-        # Generate SQL
+        prompt = self._build_generation_prompt(sanitized_query, schema, sanitized_tables)
+
         response = await self.generate_response(prompt)
 
-        # Parse the response
         sql_query, explanation = self._parse_response(response)
+
+        is_valid, error_msg = SQLSanitizer.validate_generated_sql(sql_query, allow_destructive)
+        if not is_valid:
+            return {
+                "sql": "",
+                "error": f"Generated SQL failed validation: {error_msg}",
+                "original_query": query,
+                "unsafe_sql": sql_query,
+            }
 
         return {
             "sql": sql_query,

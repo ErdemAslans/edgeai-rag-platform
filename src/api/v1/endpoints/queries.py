@@ -290,6 +290,7 @@ async def ask_question(
     # Log agent execution
     await agent_log_repo.create({
         "agent_name": agent_used,
+        "user_id": current_user.id,
         "input_data": {"query": query_data.query[:500], "mode": query_data.mode.value},
         "output_data": {"response_preview": response_text[:500]},
         "status": "completed" if "error" not in response_text.lower() else "failed",
@@ -431,6 +432,7 @@ If you don't have enough information to answer, say so clearly."""
                 
                 await agent_log_repo.create({
                     "agent_name": "rag_query_stream",
+                    "user_id": current_user.id,
                     "input_data": {"query": query_data.query[:500]},
                     "output_data": {"response_preview": full_response[:500]},
                     "status": "completed",
@@ -550,6 +552,7 @@ async def chat_with_context(
     # Log agent execution
     await agent_log_repo.create({
         "agent_name": agent_used,
+        "user_id": current_user.id,
         "input_data": {"message": chat_data.message[:500], "mode": chat_data.mode.value},
         "output_data": {"response_preview": response_text[:500]},
         "status": "completed",

@@ -24,6 +24,82 @@ class RateLimitExceeded(HTTPException):
         )
 
 
+class BruteForceProtection:
+    """Brute-force attack protection for login attempts."""
+    
+    def __init__(self):
+        self._failed_attempts: Dict[str, list] = defaultdict(list)
+        self._blocked_until: Dict[str, float] = {}
+        self._lock = asyncio.Lock()
+        
+        self.MAX_FAILED_ATTEMPTS = 5
+        self.BLOCK_DURATION_SECONDS = 300
+        self.ATTEMPT_WINDOW_SECONDS = 300
+    
+    async def record_failed_attempt(self, identifier: str) -> None:
+        """Record a failed login attempt."""
+        current_time = time.time()
+        
+        async with self._lock:
+            self._failed_attempts[identifier].append(current_time)
+            self._cleanup_old_attempts(identifier, current_time)
+            
+            if len(self._failed_attempts[identifier]) >= self.MAX_FAILED_ATTEMPTS:
+                self._blocked_until[identifier] = current_time + self.BLOCK_DURATION_SECONDS
+                logger.warning(
+                    "Account blocked due to too many failed attempts",
+                    identifier=identifier,
+                    blocked_until=self._blocked_until[identifier],
+                )
+    
+    async def record_successful_attempt(self, identifier: str) -> None:
+        """Clear failed attempts on successful login."""
+        async with self._lock:
+            self._failed_attempts.pop(identifier, None)
+            self._blocked_until.pop(identifier, None)
+    
+    async def is_blocked(self, identifier: str) -> tuple[bool, int]:
+        """Check if identifier is blocked.
+        
+        Returns:
+            Tuple of (is_blocked, retry_after_seconds)
+        """
+        current_time = time.time()
+        
+        async with self._lock:
+            self._cleanup_old_attempts(identifier, current_time)
+            
+            if identifier in self._blocked_until:
+                if current_time < self._blocked_until[identifier]:
+                    retry_after = int(self._blocked_until[identifier] - current_time)
+                    return True, retry_after
+                else:
+                    del self._blocked_until[identifier]
+                    self._failed_attempts.pop(identifier, None)
+            
+            return False, 0
+    
+    async def get_remaining_attempts(self, identifier: str) -> int:
+        """Get remaining login attempts before block."""
+        current_time = time.time()
+        
+        async with self._lock:
+            self._cleanup_old_attempts(identifier, current_time)
+            attempts = len(self._failed_attempts.get(identifier, []))
+            return max(0, self.MAX_FAILED_ATTEMPTS - attempts)
+    
+    def _cleanup_old_attempts(self, identifier: str, current_time: float) -> None:
+        """Remove attempts outside the window."""
+        window_start = current_time - self.ATTEMPT_WINDOW_SECONDS
+        self._failed_attempts[identifier] = [
+            t for t in self._failed_attempts[identifier]
+            if t > window_start
+        ]
+
+
+brute_force_protection = BruteForceProtection()
+
+
 class InMemoryRateLimiter:
     """In-memory rate limiter using sliding window algorithm."""
     

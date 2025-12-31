@@ -1,6 +1,7 @@
 """LLM service for interacting with language models (Groq/Ollama)."""
 
 import asyncio
+import random
 from typing import List, Dict, Any, AsyncGenerator
 from enum import Enum
 
@@ -17,6 +18,80 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
 
 
+class RetryConfig:
+    """Configuration for retry logic."""
+    MAX_RETRIES = 3
+    BASE_DELAY = 1.0
+    MAX_DELAY = 30.0
+    EXPONENTIAL_BASE = 2
+    JITTER = 0.1
+
+
+class TokenCounter:
+    """Simple token counter for estimating token usage."""
+    
+    CHARS_PER_TOKEN = 4
+    
+    @classmethod
+    def estimate_tokens(cls, text: str) -> int:
+        """Estimate token count for text.
+        
+        Args:
+            text: Text to estimate tokens for.
+            
+        Returns:
+            Estimated token count.
+        """
+        if not text:
+            return 0
+        return len(text) // cls.CHARS_PER_TOKEN + 1
+    
+    @classmethod
+    def estimate_message_tokens(cls, messages: List[Dict[str, str]]) -> int:
+        """Estimate tokens for a list of messages.
+        
+        Args:
+            messages: List of message dicts with role and content.
+            
+        Returns:
+            Estimated total tokens.
+        """
+        total = 0
+        for msg in messages:
+            total += cls.estimate_tokens(msg.get("content", ""))
+            total += 4
+        return total
+    
+    @classmethod
+    def fits_context(cls, text: str, max_tokens: int = 8000) -> bool:
+        """Check if text fits within context window.
+        
+        Args:
+            text: Text to check.
+            max_tokens: Maximum allowed tokens.
+            
+        Returns:
+            True if text fits.
+        """
+        return cls.estimate_tokens(text) <= max_tokens
+    
+    @classmethod
+    def truncate_to_tokens(cls, text: str, max_tokens: int) -> str:
+        """Truncate text to fit within token limit.
+        
+        Args:
+            text: Text to truncate.
+            max_tokens: Maximum allowed tokens.
+            
+        Returns:
+            Truncated text.
+        """
+        max_chars = max_tokens * cls.CHARS_PER_TOKEN
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars] + "..."
+
+
 class LLMService:
     """Service for interacting with LLM providers (Groq or Ollama)."""
 
@@ -28,6 +103,7 @@ class LLMService:
         """
         self.provider = provider or LLMProvider(settings.LLM_PROVIDER)
         self._client = None
+        self.token_counter = TokenCounter()
         self._initialize_client()
 
     def _initialize_client(self) -> None:
@@ -77,6 +153,54 @@ class LLMService:
                 "ollama library required. Install with: pip install ollama"
             )
 
+    async def _retry_with_backoff(self, func, *args, **kwargs) -> Any:
+        """Execute function with exponential backoff retry.
+        
+        Args:
+            func: Async function to execute.
+            *args: Arguments for function.
+            **kwargs: Keyword arguments for function.
+            
+        Returns:
+            Function result.
+            
+        Raises:
+            Last exception if all retries fail.
+        """
+        last_exception = None
+        
+        for attempt in range(RetryConfig.MAX_RETRIES):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                
+                if attempt == RetryConfig.MAX_RETRIES - 1:
+                    logger.error(
+                        "All retry attempts failed",
+                        attempts=RetryConfig.MAX_RETRIES,
+                        error=str(e),
+                    )
+                    raise
+                
+                delay = min(
+                    RetryConfig.BASE_DELAY * (RetryConfig.EXPONENTIAL_BASE ** attempt),
+                    RetryConfig.MAX_DELAY,
+                )
+                jitter = delay * RetryConfig.JITTER * random.random()
+                delay += jitter
+                
+                logger.warning(
+                    "LLM request failed, retrying",
+                    attempt=attempt + 1,
+                    delay=delay,
+                    error=str(e),
+                )
+                
+                await asyncio.sleep(delay)
+        
+        raise last_exception
+
     async def generate(
         self,
         prompt: str,
@@ -84,7 +208,7 @@ class LLMService:
         temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> str:
-        """Generate a response from the LLM.
+        """Generate a response from the LLM with retry logic.
 
         Args:
             prompt: The user prompt.
@@ -96,11 +220,13 @@ class LLMService:
             The generated text response.
         """
         if self.provider == LLMProvider.GROQ:
-            return await self._generate_groq(
+            return await self._retry_with_backoff(
+                self._generate_groq,
                 prompt, system_prompt, temperature, max_tokens
             )
         elif self.provider == LLMProvider.OLLAMA:
-            return await self._generate_ollama(
+            return await self._retry_with_backoff(
+                self._generate_ollama,
                 prompt, system_prompt, temperature, max_tokens
             )
         else:
@@ -113,33 +239,19 @@ class LLMService:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Generate response using Groq API.
-
-        Args:
-            prompt: The user prompt.
-            system_prompt: Optional system prompt.
-            temperature: Sampling temperature.
-            max_tokens: Maximum tokens.
-
-        Returns:
-            Generated text.
-        """
+        """Generate response using Groq API."""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        try:
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error("Groq API error", error=str(e))
-            raise
+        response = await self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content
 
     async def _generate_ollama(
         self,
@@ -148,38 +260,23 @@ class LLMService:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Generate response using Ollama API.
-
-        Args:
-            prompt: The user prompt.
-            system_prompt: Optional system prompt.
-            temperature: Sampling temperature.
-            max_tokens: Maximum tokens.
-
-        Returns:
-            Generated text.
-        """
+        """Generate response using Ollama API."""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        try:
-            # Run in executor since ollama library is synchronous
-            response = await asyncio.to_thread(
-                lambda: self._client.chat(
-                    model=self.model,
-                    messages=messages,
-                    options={
-                        "temperature": temperature,
-                        "num_predict": max_tokens,
-                    },
-                ),
-            )
-            return response["message"]["content"]
-        except Exception as e:
-            logger.error("Ollama API error", error=str(e))
-            raise
+        response = await asyncio.to_thread(
+            lambda: self._client.chat(
+                model=self.model,
+                messages=messages,
+                options={
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            ),
+        )
+        return response["message"]["content"]
 
     async def generate_with_context(
         self,
@@ -188,6 +285,7 @@ class LLMService:
         system_prompt: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 1024,
+        max_context_tokens: int = 6000,
     ) -> str:
         """Generate a response using RAG context.
 
@@ -197,6 +295,7 @@ class LLMService:
             system_prompt: Optional system prompt override.
             temperature: Sampling temperature.
             max_tokens: Maximum tokens.
+            max_context_tokens: Maximum tokens for context.
 
         Returns:
             Generated response incorporating context.
@@ -206,8 +305,19 @@ class LLMService:
 If the context doesn't contain relevant information, say so and provide what help you can.
 Always cite which parts of the context you used in your answer."""
 
+        filtered_context = []
+        current_tokens = 0
+        
+        for ctx in context:
+            ctx_tokens = self.token_counter.estimate_tokens(ctx)
+            if current_tokens + ctx_tokens <= max_context_tokens:
+                filtered_context.append(ctx)
+                current_tokens += ctx_tokens
+            else:
+                break
+
         context_text = "\n\n---\n\n".join(
-            f"Context {i+1}:\n{ctx}" for i, ctx in enumerate(context)
+            f"Context {i+1}:\n{ctx}" for i, ctx in enumerate(filtered_context)
         )
 
         prompt = f"""Context information:
@@ -295,7 +405,6 @@ Please provide a helpful answer based on the context above."""
         messages.append({"role": "user", "content": prompt})
 
         try:
-            # Ollama streaming needs special handling
             def stream_sync():
                 return self._client.chat(
                     model=self.model,
@@ -316,19 +425,11 @@ Please provide a helpful answer based on the context above."""
             raise
 
     def get_provider(self) -> str:
-        """Get the current LLM provider name.
-
-        Returns:
-            The provider name.
-        """
+        """Get the current LLM provider name."""
         return self.provider.value
 
     def get_model(self) -> str:
-        """Get the current model name.
-
-        Returns:
-            The model name.
-        """
+        """Get the current model name."""
         return self.model
 
 

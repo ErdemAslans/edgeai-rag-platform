@@ -105,3 +105,16 @@ class UserRepository(BaseRepository[User]):
             The updated user instance or None if not found.
         """
         return await self.update(user_id, {"is_active": True})
+
+    async def get_by_verification_token(self, token: str) -> User | None:
+        """Get a user by email verification token.
+
+        Args:
+            token: The verification token.
+
+        Returns:
+            The user instance or None if not found.
+        """
+        stmt = select(User).where(User.email_verification_token == token)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
