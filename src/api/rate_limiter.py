@@ -33,7 +33,7 @@ class BruteForceProtection:
         self._lock = asyncio.Lock()
         
         self.MAX_FAILED_ATTEMPTS = 5
-        self.BLOCK_DURATION_SECONDS = 300
+        self.BLOCK_DURATION_SECONDS = 30
         self.ATTEMPT_WINDOW_SECONDS = 300
     
     async def record_failed_attempt(self, identifier: str) -> None:

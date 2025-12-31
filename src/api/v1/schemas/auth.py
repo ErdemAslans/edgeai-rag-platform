@@ -104,6 +104,7 @@ class Token(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     requires_2fa: bool = False
+    user: Optional[UserResponse] = None
 
 
 class TokenRefresh(BaseModel):

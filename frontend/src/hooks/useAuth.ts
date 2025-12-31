@@ -46,9 +46,11 @@ export const useAuth = () => {
   }, [isFetched, data, setUser, hasToken]);
 
   const loginMutation = useMutation({
-    mutationFn: login,
+    mutationFn: ({ email, password }: { email: string; password: string }) => login(email, password),
     onSuccess: (data) => {
-      setAuth(data.user, data.access_token);
+      if (data.user) {
+        setAuth(data.user, data.access_token);
+      }
       localStorage.setItem('edgeai_token', data.access_token);
       addToast('Login successful!', 'success');
       // Navigation handled by Login component's useEffect
@@ -61,7 +63,9 @@ export const useAuth = () => {
   const registerMutation = useMutation({
     mutationFn: register,
     onSuccess: (data) => {
-      setAuth(data.user, data.access_token);
+      if (data.user) {
+        setAuth(data.user, data.access_token);
+      }
       localStorage.setItem('edgeai_token', data.access_token);
       addToast('Account created successfully!', 'success');
       navigate('/');

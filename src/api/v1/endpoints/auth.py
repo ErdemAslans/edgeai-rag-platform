@@ -43,12 +43,12 @@ router = APIRouter()
 security = HTTPBearer()
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponse:
-    """Register a new user."""
+) -> Token:
+    """Register a new user and return login token."""
     user_repo = UserRepository(db)
     
     existing_user = await user_repo.get_by_email(user_data.email)
@@ -76,7 +76,26 @@ async def register(
         email=user.email,
     )
     
-    return UserResponse.model_validate(user)
+    # Create tokens for auto-login
+    access_token = create_access_token(
+        subject=str(user.id),
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    refresh_token = create_refresh_token(
+        subject=str(user.id),
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+    
+    user_response = UserResponse.model_validate(user)
+    user_response.permissions = user.get_permissions()
+    
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        requires_2fa=False,
+        user=user_response,
+    )
 
 
 def _get_client_ip(request: Request) -> str:
@@ -158,11 +177,15 @@ async def login(
     
     logger.info("User logged in", user_id=str(user.id))
     
+    user_response = UserResponse.model_validate(user)
+    user_response.permissions = user.get_permissions()
+    
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         requires_2fa=False,
+        user=user_response,
     )
 
 
@@ -225,11 +248,15 @@ async def verify_2fa(
     
     logger.info("User verified 2FA", user_id=str(user.id))
     
+    user_response = UserResponse.model_validate(user)
+    user_response.permissions = user.get_permissions()
+    
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
         requires_2fa=False,
+        user=user_response,
     )
 
 
@@ -278,10 +305,14 @@ async def refresh_token(
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
     
+    user_response = UserResponse.model_validate(user)
+    user_response.permissions = user.get_permissions()
+    
     return Token(
         access_token=access_token,
         refresh_token=new_refresh_token,
         token_type="bearer",
+        user=user_response,
     )
 
 

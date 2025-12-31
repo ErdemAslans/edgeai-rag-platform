@@ -10,6 +10,7 @@ export interface LoginResponse {
   refresh_token: string;
   token_type: string;
   requires_2fa?: boolean;
+  user?: User;
 }
 
 export interface RegisterRequest {
@@ -18,17 +19,25 @@ export interface RegisterRequest {
   full_name?: string;
 }
 
+export interface Role {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: string[];
+  created_at: string;
+}
+
 export interface User {
   id: string;
   email: string;
-  full_name?: string;
+  full_name: string | null;
   is_active: boolean;
   is_superuser: boolean;
   is_email_verified: boolean;
   two_factor_enabled: boolean;
   created_at: string;
   updated_at: string;
-  roles: Array<{ id: string; name: string; permissions: string[] }>;
+  roles: Role[];
   permissions: string[];
 }
 
@@ -57,8 +66,8 @@ export const login = async (email: string, password: string): Promise<LoginRespo
   return response.data;
 };
 
-export const register = async (data: RegisterRequest): Promise<User> => {
-  const response = await api.post<User>('/auth/register', data);
+export const register = async (data: RegisterRequest): Promise<LoginResponse> => {
+  const response = await api.post<LoginResponse>('/auth/register', data);
   return response.data;
 };
 
