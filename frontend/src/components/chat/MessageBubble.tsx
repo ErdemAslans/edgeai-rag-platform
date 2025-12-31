@@ -1,6 +1,7 @@
 import { Message, RoutingInfo, AgentFramework } from '@/types';
 import { formatDateTime } from '@/lib/utils';
 import SourceReference from './SourceReference';
+import FeedbackButtons from './FeedbackButtons';
 import { Bot, Zap, Clock, GitBranch, Users, Sparkles } from 'lucide-react';
 
 // Extended message interface for routing info
@@ -9,6 +10,7 @@ interface ExtendedMessage extends Message {
   executionTime?: number;
   framework?: AgentFramework;
   reasoningTrace?: string;
+  queryId?: string; // For feedback
 }
 
 interface MessageBubbleProps {
@@ -119,6 +121,18 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
         {message.sources && message.sources.length > 0 && (
           <div className="mt-3">
             <SourceReference sources={message.sources} />
+          </div>
+        )}
+        
+        {/* Feedback buttons for assistant messages */}
+        {!isUser && message.queryId && (
+          <div className="mt-3 pt-2 border-t border-border/50">
+            <FeedbackButtons
+              queryId={message.queryId}
+              onFeedbackSubmitted={(isPositive) => {
+                console.log(`Feedback submitted: ${isPositive ? 'positive' : 'negative'}`);
+              }}
+            />
           </div>
         )}
         

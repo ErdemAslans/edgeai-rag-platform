@@ -1,8 +1,9 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, FileText, MessageSquare, Bot, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, FileText, MessageSquare, Bot, Settings, LogOut, BarChart3, TrendingUp, Network, Users, Share2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { ROUTES } from '@/lib/constants';
 import { getInitials } from '@/lib/utils';
+import { NotificationDropdown } from '../collaboration';
 
 const Sidebar = () => {
   const location = useLocation();
@@ -14,6 +15,10 @@ const Sidebar = () => {
     { path: ROUTES.DOCUMENTS, label: 'Documents', icon: FileText },
     { path: ROUTES.CHAT, label: 'Chat', icon: MessageSquare },
     { path: ROUTES.AGENTS, label: 'Agents', icon: Bot },
+    { path: '/knowledge-graph', label: 'Knowledge Graph', icon: Network },
+    { path: '/shared-with-me', label: 'Shared With Me', icon: Share2 },
+    { path: '/analytics', label: 'Learning', icon: BarChart3 },
+    { path: '/analytics/advanced', label: 'Analytics', icon: TrendingUp },
     { path: ROUTES.SETTINGS, label: 'Settings', icon: Settings },
   ];
 
@@ -71,6 +76,7 @@ const Sidebar = () => {
                 {user.email}
               </p>
             </div>
+            <NotificationDropdown />
           </div>
           <button
             onClick={handleLogout}

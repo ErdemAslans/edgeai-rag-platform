@@ -13,6 +13,7 @@ from src.db.base import Base
 if TYPE_CHECKING:
     from src.db.models.user import User
     from src.db.models.chunk import Chunk
+    from src.db.models.document_version import DocumentVersion
 
 
 class Document(Base):
@@ -88,6 +89,12 @@ class Document(Base):
         "Chunk",
         back_populates="document",
         cascade="all, delete-orphan",
+    )
+    versions: Mapped[List["DocumentVersion"]] = relationship(
+        "DocumentVersion",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="desc(DocumentVersion.version_number)",
     )
 
     def __repr__(self) -> str:

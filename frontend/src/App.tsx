@@ -10,6 +10,10 @@ import Documents from '@/pages/Documents';
 import Chat from '@/pages/Chat';
 import Agents from '@/pages/Agents';
 import Settings from '@/pages/Settings';
+import LearningAnalytics from '@/pages/LearningAnalytics';
+import AdvancedAnalytics from '@/pages/AdvancedAnalytics';
+import KnowledgeGraph from '@/pages/KnowledgeGraph';
+import SharedWithMe from '@/pages/SharedWithMe';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +59,26 @@ const App = () => {
             <Route path={ROUTES.SETTINGS} element={
               <ProtectedRoute>
                 <Settings />
+              </ProtectedRoute>
+            } />
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <LearningAnalytics />
+              </ProtectedRoute>
+            } />
+            <Route path="/analytics/advanced" element={
+              <ProtectedRoute>
+                <AdvancedAnalytics />
+              </ProtectedRoute>
+            } />
+            <Route path="/knowledge-graph" element={
+              <ProtectedRoute>
+                <KnowledgeGraph />
+              </ProtectedRoute>
+            } />
+            <Route path="/shared-with-me" element={
+              <ProtectedRoute>
+                <SharedWithMe />
               </ProtectedRoute>
             } />
 
