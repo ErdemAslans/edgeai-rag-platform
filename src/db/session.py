@@ -40,7 +40,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Initialize database (create tables if they don't exist)."""
     from src.db.base import Base
-    from src.db.models import user, document, chunk, query, agent_log  # noqa: F401
+    from src.db.models import user, document, chunk, query, agent_log, edge_log  # noqa: F401
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
