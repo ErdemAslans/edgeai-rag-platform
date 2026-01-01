@@ -1,13 +1,13 @@
 """LLM service for interacting with language models (Groq/Ollama)."""
 
 import asyncio
-import random
 from typing import List, Dict, Any, AsyncGenerator
 from enum import Enum
 
 import structlog
 
 from src.config import settings
+from src.core.retry import llm_retry
 
 logger = structlog.get_logger()
 
@@ -16,15 +16,6 @@ class LLMProvider(str, Enum):
     """Supported LLM providers."""
     GROQ = "groq"
     OLLAMA = "ollama"
-
-
-class RetryConfig:
-    """Configuration for retry logic."""
-    MAX_RETRIES = 3
-    BASE_DELAY = 1.0
-    MAX_DELAY = 30.0
-    EXPONENTIAL_BASE = 2
-    JITTER = 0.1
 
 
 class TokenCounter:
@@ -153,56 +144,6 @@ class LLMService:
                 "ollama library required. Install with: pip install ollama"
             )
 
-    async def _retry_with_backoff(self, func, *args, **kwargs) -> Any:
-        """Execute function with exponential backoff retry.
-        
-        Args:
-            func: Async function to execute.
-            *args: Arguments for function.
-            **kwargs: Keyword arguments for function.
-            
-        Returns:
-            Function result.
-            
-        Raises:
-            Last exception if all retries fail.
-        """
-        last_exception = None
-        
-        for attempt in range(RetryConfig.MAX_RETRIES):
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                
-                if attempt == RetryConfig.MAX_RETRIES - 1:
-                    logger.error(
-                        "All retry attempts failed",
-                        attempts=RetryConfig.MAX_RETRIES,
-                        error=str(e),
-                    )
-                    raise
-                
-                delay = min(
-                    RetryConfig.BASE_DELAY * (RetryConfig.EXPONENTIAL_BASE ** attempt),
-                    RetryConfig.MAX_DELAY,
-                )
-                jitter = delay * RetryConfig.JITTER * random.random()
-                delay += jitter
-                
-                logger.warning(
-                    "LLM request failed, retrying",
-                    attempt=attempt + 1,
-                    delay=delay,
-                    error=str(e),
-                )
-                
-                await asyncio.sleep(delay)
-
-        if last_exception is not None:
-            raise last_exception
-        raise RuntimeError("Retry failed with no exception recorded")
-
     async def generate(
         self,
         prompt: str,
@@ -211,6 +152,9 @@ class LLMService:
         max_tokens: int = 1024,
     ) -> str:
         """Generate a response from the LLM with retry logic.
+
+        Uses tenacity-based retry decorator for resilient API calls with
+        exponential backoff and jitter.
 
         Args:
             prompt: The user prompt.
@@ -222,18 +166,17 @@ class LLMService:
             The generated text response.
         """
         if self.provider == LLMProvider.GROQ:
-            return await self._retry_with_backoff(
-                self._generate_groq,
+            return await self._generate_groq(
                 prompt, system_prompt, temperature, max_tokens
             )
         elif self.provider == LLMProvider.OLLAMA:
-            return await self._retry_with_backoff(
-                self._generate_ollama,
+            return await self._generate_ollama(
                 prompt, system_prompt, temperature, max_tokens
             )
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
+    @llm_retry
     async def _generate_groq(
         self,
         prompt: str,
@@ -241,7 +184,10 @@ class LLMService:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Generate response using Groq API."""
+        """Generate response using Groq API.
+
+        Decorated with @llm_retry for automatic retry with exponential backoff.
+        """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -255,6 +201,7 @@ class LLMService:
         )
         return response.choices[0].message.content
 
+    @llm_retry
     async def _generate_ollama(
         self,
         prompt: str,
@@ -262,7 +209,10 @@ class LLMService:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Generate response using Ollama API."""
+        """Generate response using Ollama API.
+
+        Decorated with @llm_retry for automatic retry with exponential backoff.
+        """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
