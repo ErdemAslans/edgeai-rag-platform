@@ -133,3 +133,103 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentSuperuser = Annotated[User, Depends(get_current_active_superuser)]
 VerifiedUser = Annotated[User, Depends(get_verified_user)]
+
+
+# =============================================================================
+# Service Dependencies from DI Container
+# =============================================================================
+
+
+def get_llm_service() -> "LLMService":
+    """Get LLM service singleton from DI container.
+
+    Returns the singleton LLM service instance for generating text,
+    chat completions, and other LLM operations.
+
+    Returns:
+        LLMService: The LLM service instance.
+
+    Raises:
+        HTTPException: If LLM service is not available.
+    """
+    from src.core.di import get_container
+    from src.services.llm_service import LLMService
+
+    try:
+        container = get_container()
+        return container.resolve("llm_service")
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM service is not available",
+        )
+
+
+def get_embedding_service() -> "EmbeddingService":
+    """Get embedding service singleton from DI container.
+
+    Returns the singleton embedding service instance for generating
+    text embeddings for vector search.
+
+    Returns:
+        EmbeddingService: The embedding service instance.
+
+    Raises:
+        HTTPException: If embedding service is not available.
+    """
+    from src.core.di import get_container
+    from src.services.embedding_service import EmbeddingService
+
+    try:
+        container = get_container()
+        return container.resolve("embedding_service")
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Embedding service is not available",
+        )
+
+
+def get_document_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> "DocumentService":
+    """Get document service factory from DI container with database session.
+
+    Creates a new document service instance for each request,
+    injecting the current database session.
+
+    Args:
+        db: The async database session for this request.
+
+    Returns:
+        DocumentService: A new document service instance.
+
+    Raises:
+        HTTPException: If document service factory is not available.
+    """
+    from src.core.di import get_container
+    from src.services.document_service import DocumentService
+
+    try:
+        container = get_container()
+        return container.resolve_with_session("document_service", db)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document service is not available",
+        )
+
+
+# Forward references for type hints
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.services.llm_service import LLMService
+    from src.services.embedding_service import EmbeddingService
+    from src.services.document_service import DocumentService
+
+
+# Type aliases for DI dependencies
+LLMServiceDep = Annotated["LLMService", Depends(get_llm_service)]
+EmbeddingServiceDep = Annotated["EmbeddingService", Depends(get_embedding_service)]
+DocumentServiceDep = Annotated["DocumentService", Depends(get_document_service)]

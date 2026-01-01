@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status,
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from src.api.deps import get_db, CurrentUser
+from src.api.deps import get_db, get_embedding_service, CurrentUser, DbSession
 from src.api.v1.schemas.documents import (
     DocumentResponse,
     DocumentListResponse,
@@ -17,9 +17,9 @@ from src.api.v1.schemas.documents import (
     ChunkResponse,
 )
 from src.config import settings
+from src.core.di import get_container
 from src.db.repositories.document import DocumentRepository
 from src.db.repositories.chunk import ChunkRepository
-from src.services.embedding_service import get_embedding_service
 
 logger = structlog.get_logger()
 
@@ -99,16 +99,19 @@ async def upload_document(
 
 async def process_document_task(document_id: uuid.UUID) -> None:
     """Background task to process a document.
-    
+
     Creates its own database session to avoid issues with request-scoped sessions.
+    Uses the DI container to get the embedding service singleton.
     """
     from src.db.session import async_session_factory
-    
+
     async with async_session_factory() as db:
         try:
             doc_repo = DocumentRepository(db)
             chunk_repo = ChunkRepository(db)
-            embedding_service = get_embedding_service()
+            # Get embedding service from DI container (singleton)
+            container = get_container()
+            embedding_service = container.resolve("embedding_service")
             
             # Get document
             document = await doc_repo.get_by_id(document_id)
