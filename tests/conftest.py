@@ -12,10 +12,18 @@ from src.db.session import get_async_session
 from src.config import settings
 
 
-# Test database URL (use a separate test database)
-TEST_DATABASE_URL = settings.DATABASE_URL.replace(
-    settings.POSTGRES_DB, f"{settings.POSTGRES_DB}_test"
-)
+# Extract database name from DATABASE_URL and create test database URL
+def get_test_database_url():
+    """Create a test database URL from the configured DATABASE_URL."""
+    db_url = settings.DATABASE_URL
+    # Replace the database name with a test database name
+    if "/" in db_url:
+        base_url, db_name = db_url.rsplit("/", 1)
+        return f"{base_url}/{db_name}_test"
+    return db_url + "_test"
+
+
+TEST_DATABASE_URL = get_test_database_url()
 
 
 @pytest.fixture(scope="session")
