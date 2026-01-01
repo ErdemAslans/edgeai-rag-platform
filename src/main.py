@@ -4,13 +4,16 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import structlog
 
 from src.config import settings
 from src.api.middleware import RequestLoggingMiddleware
 from src.api.v1.router import api_router
+from src.core.exceptions import EdgeAIException, RateLimitError
 from src.core.logging import setup_logging
 from src.db.session import init_db, close_db
 
@@ -143,19 +146,125 @@ A hybrid edge-cloud platform for:
 
         logger.info("Metrics endpoint enabled", path=settings.METRICS_PATH)
 
-    # Global exception handler to ensure CORS headers are always sent
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        """Handle all unhandled exceptions with proper CORS headers."""
-        logger.error(
-            "Unhandled exception",
-            error=str(exc),
+    # ==========================================================================
+    # Exception Handlers
+    # ==========================================================================
+
+    @app.exception_handler(EdgeAIException)
+    async def edgeai_exception_handler(
+        request: Request, exc: EdgeAIException
+    ) -> JSONResponse:
+        """Handle all EdgeAI custom exceptions with proper error format.
+
+        Uses the exception's http_status and to_dict() for consistent responses.
+        Logs the error with context and includes retryable hint in response.
+        """
+        logger.warning(
+            "EdgeAI exception",
+            error_code=exc.code,
+            error_message=exc.message,
+            http_status=exc.http_status,
+            retryable=exc.retryable,
+            path=request.url.path,
+            method=request.method,
+            details=exc.details,
+        )
+        response_content = exc.to_dict()
+        # Add retryable hint for clients
+        response_content["error"]["retryable"] = exc.retryable
+
+        headers = {}
+        # Add Retry-After header for rate limit errors
+        if isinstance(exc, RateLimitError) and exc.details.get("retry_after"):
+            headers["Retry-After"] = str(exc.details["retry_after"])
+
+        return JSONResponse(
+            status_code=exc.http_status,
+            content=response_content,
+            headers=headers if headers else None,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """Handle Pydantic/FastAPI request validation errors.
+
+        Converts validation errors to our standard error format for consistency.
+        """
+        errors = exc.errors()
+        logger.warning(
+            "Request validation error",
+            path=request.url.path,
+            method=request.method,
+            errors=errors,
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed",
+                    "details": {"validation_errors": errors},
+                    "retryable": False,
+                }
+            },
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Handle Starlette HTTP exceptions with our standard format.
+
+        Ensures HTTP exceptions from FastAPI/Starlette use consistent error format.
+        """
+        logger.warning(
+            "HTTP exception",
+            status_code=exc.status_code,
+            detail=exc.detail,
             path=request.url.path,
             method=request.method,
         )
         return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": "HTTP_ERROR",
+                    "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+                    "details": {},
+                    "retryable": exc.status_code >= 500,
+                }
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        """Handle all unhandled exceptions with proper error format.
+
+        This is the fallback handler for unexpected errors. It logs the full
+        exception for debugging while returning a safe error message to clients.
+        """
+        logger.error(
+            "Unhandled exception",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            path=request.url.path,
+            method=request.method,
+            exc_info=True,
+        )
+        return JSONResponse(
             status_code=500,
-            content={"detail": "Internal server error"},
+            content={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred",
+                    "details": {},
+                    "retryable": True,
+                }
+            },
         )
 
     return app
