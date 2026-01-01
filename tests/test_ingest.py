@@ -10,10 +10,23 @@ These tests verify that:
 import pytest
 import uuid
 from datetime import datetime, timezone, timedelta
-from httpx import AsyncClient
+from typing import AsyncGenerator
+from httpx import AsyncClient, ASGITransport
 from unittest.mock import patch, AsyncMock
 
 from src.schemas.ingest import LogLevel
+from src.main import app
+
+
+@pytest.fixture
+async def client() -> AsyncGenerator[AsyncClient, None]:
+    """Create a test HTTP client without database dependency.
+
+    The database operations are mocked in individual tests to focus on API behavior.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
 
 
 @pytest.fixture
