@@ -25,6 +25,9 @@ from functools import lru_cache
 from typing import Any, Callable, Dict, Optional, TypeVar, Type, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
+
+logger = structlog.get_logger()
 
 T = TypeVar("T")
 
@@ -302,3 +305,101 @@ def reset_container() -> None:
     global _container
     get_container.cache_clear()
     _container = None
+
+
+def register_services() -> DIContainer:
+    """Register all application services in the DI container.
+
+    This function initializes and registers both singleton services
+    (LLM, embedding) and request-scoped factories (document service).
+
+    Should be called once during application startup.
+
+    Returns:
+        The configured DIContainer instance.
+
+    Example:
+        # In application lifespan:
+        container = register_services()
+    """
+    container = get_container()
+
+    # Register singleton services (expensive to create, shared across requests)
+    _register_singleton_services(container)
+
+    # Register request-scoped factories (created per request with session)
+    _register_factory_services(container)
+
+    logger.info(
+        "Services registered in DI container",
+        singletons=container.list_singletons(),
+        factories=container.list_factories(),
+    )
+
+    return container
+
+
+def _register_singleton_services(container: DIContainer) -> None:
+    """Register singleton services that are shared across all requests.
+
+    These services are created once and reused. They include:
+    - LLM service (Groq/Ollama client)
+    - Embedding service (sentence-transformers model)
+
+    Args:
+        container: The DI container instance.
+    """
+    # Import services lazily to avoid circular imports
+    from src.services.llm_service import LLMService
+    from src.services.embedding_service import EmbeddingService
+
+    # LLM service - creates and maintains LLM client connection
+    try:
+        llm_service = LLMService()
+        container.register_singleton("llm_service", llm_service)
+        logger.info(
+            "LLM service registered",
+            provider=llm_service.get_provider(),
+            model=llm_service.get_model(),
+        )
+    except Exception as e:
+        logger.warning(
+            "LLM service registration failed - service will be unavailable",
+            error=str(e),
+        )
+
+    # Embedding service - loads and manages embedding model
+    try:
+        embedding_service = EmbeddingService()
+        container.register_singleton("embedding_service", embedding_service)
+        logger.info(
+            "Embedding service registered",
+            model=embedding_service.get_model_name(),
+            dimension=embedding_service.get_embedding_dimension(),
+        )
+    except Exception as e:
+        logger.warning(
+            "Embedding service registration failed - service will be unavailable",
+            error=str(e),
+        )
+
+
+def _register_factory_services(container: DIContainer) -> None:
+    """Register factory functions for request-scoped services.
+
+    These services are created per request and require a database session.
+    They include:
+    - Document service (document CRUD operations)
+
+    Args:
+        container: The DI container instance.
+    """
+    # Import services lazily to avoid circular imports
+    from src.services.document_service import DocumentService
+
+    # Document service - requires session for database operations
+    container.register_factory(
+        "document_service",
+        lambda session: DocumentService(session),
+    )
+    logger.debug("Document service factory registered")

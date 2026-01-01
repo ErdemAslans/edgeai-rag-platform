@@ -13,6 +13,7 @@ import structlog
 from src.config import settings
 from src.api.middleware import RequestLoggingMiddleware
 from src.api.v1.router import api_router
+from src.core.di import get_container, register_services
 from src.core.exceptions import EdgeAIException, RateLimitError
 from src.core.logging import setup_logging
 from src.db.session import init_db, close_db
@@ -39,7 +40,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize database connection pool
     await init_db()
     logger.info("Database connection pool initialized")
-    
+
+    # Register services in DI container
+    register_services()
+
     # Initialize Redis cache if enabled
     if settings.REDIS_ENABLED:
         from src.services.cache_service import get_cache_service
