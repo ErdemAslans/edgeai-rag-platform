@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "004-develop-edge-to-cloud-log-streaming-pipeline",
+  "spec": "002-implement-code-quality-improvements-for-edgeai-rag",
   "state": "building",
   "subtasks": {
-    "completed": 12,
-    "total": 16,
+    "completed": 21,
+    "total": 38,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Rust Edge Collector Service",
+    "current": "Security Hardening",
     "id": null,
-    "total": 7
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 13,
-    "started_at": "2026-01-01T18:40:03.828584"
+    "number": 19,
+    "started_at": "2026-01-01T20:09:02.774457"
   },
-  "last_update": "2026-01-01T19:34:20.894067"
+  "last_update": "2026-01-01T21:32:13.664127"
 }

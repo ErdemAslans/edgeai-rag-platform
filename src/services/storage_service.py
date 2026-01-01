@@ -258,15 +258,16 @@ class GCSStorageBackend(StorageBackend):
         if self._bucket is None:
             try:
                 from google.cloud import storage
-                
+
                 if self.credentials_path:
                     self._client = storage.Client.from_service_account_json(
                         self.credentials_path
                     )
                 else:
                     self._client = storage.Client()
-                
-                self._bucket = self._client.bucket(self.bucket_name)
+
+                if self._client is not None:
+                    self._bucket = self._client.bucket(self.bucket_name)
             except ImportError:
                 raise ImportError(
                     "google-cloud-storage required for GCS storage. "
@@ -403,16 +404,22 @@ class StorageService:
             base_dir = kwargs.get("base_dir", settings.UPLOAD_DIR)
             self._backend = LocalStorageBackend(base_dir)
         elif backend == "s3":
+            bucket_name = kwargs.get("bucket_name")
+            if not bucket_name:
+                raise ValueError("bucket_name is required for S3 storage backend")
             self._backend = S3StorageBackend(
-                bucket_name=kwargs.get("bucket_name"),
+                bucket_name=bucket_name,
                 region=kwargs.get("region", "us-east-1"),
                 access_key=kwargs.get("access_key"),
                 secret_key=kwargs.get("secret_key"),
                 endpoint_url=kwargs.get("endpoint_url"),
             )
         elif backend == "gcs":
+            bucket_name = kwargs.get("bucket_name")
+            if not bucket_name:
+                raise ValueError("bucket_name is required for GCS storage backend")
             self._backend = GCSStorageBackend(
-                bucket_name=kwargs.get("bucket_name"),
+                bucket_name=bucket_name,
                 credentials_path=kwargs.get("credentials_path"),
             )
         else:
@@ -434,26 +441,31 @@ class StorageService:
     ) -> str:
         """Upload a file."""
         self._ensure_configured()
+        assert self._backend is not None
         return await self._backend.upload(file_data, filename, content_type)
-    
+
     async def download(self, file_path: str) -> bytes:
         """Download a file."""
         self._ensure_configured()
+        assert self._backend is not None
         return await self._backend.download(file_path)
-    
+
     async def delete(self, file_path: str) -> bool:
         """Delete a file."""
         self._ensure_configured()
+        assert self._backend is not None
         return await self._backend.delete(file_path)
-    
+
     async def exists(self, file_path: str) -> bool:
         """Check if a file exists."""
         self._ensure_configured()
+        assert self._backend is not None
         return await self._backend.exists(file_path)
-    
+
     async def get_url(self, file_path: str, expires_in: int = 3600) -> str:
         """Get a URL for the file."""
         self._ensure_configured()
+        assert self._backend is not None
         return await self._backend.get_url(file_path, expires_in)
 
 

@@ -1,30 +1,20 @@
 """LLM service for interacting with language models (Groq/Ollama)."""
 
 import asyncio
-import random
 from typing import List, Dict, Any, AsyncGenerator
 from enum import Enum
 
-import structlog
-
 from src.config import settings
+from src.core.logging import get_logger, bind_context, with_context
+from src.core.retry import llm_retry
 
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 class LLMProvider(str, Enum):
     """Supported LLM providers."""
     GROQ = "groq"
     OLLAMA = "ollama"
-
-
-class RetryConfig:
-    """Configuration for retry logic."""
-    MAX_RETRIES = 3
-    BASE_DELAY = 1.0
-    MAX_DELAY = 30.0
-    EXPONENTIAL_BASE = 2
-    JITTER = 0.1
 
 
 class TokenCounter:
@@ -102,7 +92,7 @@ class LLMService:
             provider: The LLM provider to use. Defaults to settings configuration.
         """
         self.provider = provider or LLMProvider(settings.LLM_PROVIDER)
-        self._client = None
+        self._client: Any = None
         self.token_counter = TokenCounter()
         self._initialize_client()
 
@@ -153,54 +143,6 @@ class LLMService:
                 "ollama library required. Install with: pip install ollama"
             )
 
-    async def _retry_with_backoff(self, func, *args, **kwargs) -> Any:
-        """Execute function with exponential backoff retry.
-        
-        Args:
-            func: Async function to execute.
-            *args: Arguments for function.
-            **kwargs: Keyword arguments for function.
-            
-        Returns:
-            Function result.
-            
-        Raises:
-            Last exception if all retries fail.
-        """
-        last_exception = None
-        
-        for attempt in range(RetryConfig.MAX_RETRIES):
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                
-                if attempt == RetryConfig.MAX_RETRIES - 1:
-                    logger.error(
-                        "All retry attempts failed",
-                        attempts=RetryConfig.MAX_RETRIES,
-                        error=str(e),
-                    )
-                    raise
-                
-                delay = min(
-                    RetryConfig.BASE_DELAY * (RetryConfig.EXPONENTIAL_BASE ** attempt),
-                    RetryConfig.MAX_DELAY,
-                )
-                jitter = delay * RetryConfig.JITTER * random.random()
-                delay += jitter
-                
-                logger.warning(
-                    "LLM request failed, retrying",
-                    attempt=attempt + 1,
-                    delay=delay,
-                    error=str(e),
-                )
-                
-                await asyncio.sleep(delay)
-        
-        raise last_exception
-
     async def generate(
         self,
         prompt: str,
@@ -209,6 +151,9 @@ class LLMService:
         max_tokens: int = 1024,
     ) -> str:
         """Generate a response from the LLM with retry logic.
+
+        Uses tenacity-based retry decorator for resilient API calls with
+        exponential backoff and jitter.
 
         Args:
             prompt: The user prompt.
@@ -219,19 +164,27 @@ class LLMService:
         Returns:
             The generated text response.
         """
+        # Bind context for LLM operation tracing
+        bind_context(
+            llm_provider=self.provider.value,
+            llm_model=self.model,
+            llm_operation="generate",
+            llm_temperature=temperature,
+            llm_max_tokens=max_tokens,
+        )
+
         if self.provider == LLMProvider.GROQ:
-            return await self._retry_with_backoff(
-                self._generate_groq,
+            return await self._generate_groq(
                 prompt, system_prompt, temperature, max_tokens
             )
         elif self.provider == LLMProvider.OLLAMA:
-            return await self._retry_with_backoff(
-                self._generate_ollama,
+            return await self._generate_ollama(
                 prompt, system_prompt, temperature, max_tokens
             )
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
+    @llm_retry
     async def _generate_groq(
         self,
         prompt: str,
@@ -239,7 +192,10 @@ class LLMService:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Generate response using Groq API."""
+        """Generate response using Groq API.
+
+        Decorated with @llm_retry for automatic retry with exponential backoff.
+        """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -253,6 +209,7 @@ class LLMService:
         )
         return response.choices[0].message.content
 
+    @llm_retry
     async def _generate_ollama(
         self,
         prompt: str,
@@ -260,7 +217,10 @@ class LLMService:
         temperature: float,
         max_tokens: int,
     ) -> str:
-        """Generate response using Ollama API."""
+        """Generate response using Ollama API.
+
+        Decorated with @llm_retry for automatic retry with exponential backoff.
+        """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -300,6 +260,15 @@ class LLMService:
         Returns:
             Generated response incorporating context.
         """
+        # Bind context for RAG operation tracing
+        bind_context(
+            llm_provider=self.provider.value,
+            llm_model=self.model,
+            llm_operation="generate_with_context",
+            rag_context_count=len(context),
+            rag_max_context_tokens=max_context_tokens,
+        )
+
         if not system_prompt:
             system_prompt = """You are a helpful AI assistant. Use the provided context to answer the user's question accurately. 
 If the context doesn't contain relevant information, say so and provide what help you can.
@@ -352,6 +321,15 @@ Please provide a helpful answer based on the context above."""
         Yields:
             Generated text chunks.
         """
+        # Bind context for streaming operation tracing
+        bind_context(
+            llm_provider=self.provider.value,
+            llm_model=self.model,
+            llm_operation="generate_stream",
+            llm_temperature=temperature,
+            llm_max_tokens=max_tokens,
+        )
+
         if self.provider == LLMProvider.GROQ:
             async for chunk in self._stream_groq(
                 prompt, system_prompt, temperature, max_tokens

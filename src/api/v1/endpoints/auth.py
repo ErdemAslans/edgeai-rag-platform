@@ -1,7 +1,7 @@
 """Authentication endpoints."""
 
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, HTTPAuthorizationCredentials, HTTPBearer
@@ -320,7 +320,7 @@ async def refresh_token(
 async def logout(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     current_user: CurrentUser,
-) -> dict:
+) -> Dict[str, str]:
     """Logout and blacklist the current token."""
     token = credentials.credentials
     blacklist_token(token)
@@ -367,7 +367,7 @@ async def change_password(
     password_data: PasswordChange,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
+) -> Dict[str, str]:
     """Change current user password."""
     if not verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
@@ -397,7 +397,7 @@ async def change_password(
 async def verify_email(
     data: EmailVerificationConfirm,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
+) -> Dict[str, str]:
     """Verify email with token."""
     user_repo = UserRepository(db)
     user = await user_repo.get_by_verification_token(data.token)
@@ -432,7 +432,7 @@ async def verify_email(
 async def resend_verification_email(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
+) -> Dict[str, str]:
     """Resend email verification token."""
     if current_user.is_email_verified:
         raise HTTPException(
@@ -489,7 +489,7 @@ async def enable_2fa(
     data: TwoFactorEnableRequest,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
+) -> Dict[str, str]:
     """Enable 2FA after verifying code."""
     if current_user.two_factor_enabled:
         raise HTTPException(
@@ -523,7 +523,7 @@ async def disable_2fa(
     data: TwoFactorDisableRequest,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
+) -> Dict[str, str]:
     """Disable 2FA."""
     if not current_user.two_factor_enabled:
         raise HTTPException(

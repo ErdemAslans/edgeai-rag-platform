@@ -7,6 +7,8 @@ from functools import lru_cache
 
 import structlog
 
+from src.core.retry import embedding_retry
+
 logger = structlog.get_logger()
 
 
@@ -139,26 +141,59 @@ class EmbeddingService:
             List of floats representing the embedding vector.
         """
         truncated = self._truncate_text(text)
-        
+
         if use_cache:
             cached = self._cache.get(truncated)
             if cached is not None:
                 return cached
-        
-        embedding = await asyncio.to_thread(
-            self._embed_text_sync,
-            truncated,
-        )
-        
+
+        embedding = await self._embed_text_with_retry(truncated)
+
         if use_cache:
             self._cache.set(truncated, embedding)
-        
+
         return embedding
 
     def _embed_text_sync(self, text: str) -> List[float]:
         """Synchronously generate embedding for a single text."""
         embedding = self._model.encode(text, convert_to_numpy=True)
         return embedding.tolist()
+
+    @embedding_retry
+    async def _embed_text_with_retry(self, text: str) -> List[float]:
+        """Generate embedding with retry logic.
+
+        This method wraps the synchronous embedding call with retry
+        logic to handle transient failures.
+
+        Args:
+            text: The text to embed.
+
+        Returns:
+            List of floats representing the embedding vector.
+        """
+        return await asyncio.to_thread(
+            self._embed_text_sync,
+            text,
+        )
+
+    @embedding_retry
+    async def _embed_texts_with_retry(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for multiple texts with retry logic.
+
+        This method wraps the synchronous batch embedding call with retry
+        logic to handle transient failures.
+
+        Args:
+            texts: List of texts to embed.
+
+        Returns:
+            List of embedding vectors.
+        """
+        return await asyncio.to_thread(
+            self._embed_texts_sync,
+            texts,
+        )
 
     async def embed_texts(self, texts: List[str], use_cache: bool = True) -> List[List[float]]:
         """Generate embeddings for multiple texts.
@@ -177,30 +212,24 @@ class EmbeddingService:
         
         if use_cache:
             cached = self._cache.get_many(truncated_texts)
-            
+
             if len(cached) == len(truncated_texts):
                 return [cached[i] for i in range(len(truncated_texts))]
-            
+
             uncached_indices = [i for i in range(len(truncated_texts)) if i not in cached]
             uncached_texts = [truncated_texts[i] for i in uncached_indices]
-            
+
             if uncached_texts:
-                new_embeddings = await asyncio.to_thread(
-                    self._embed_texts_sync,
-                    uncached_texts,
-                )
-                
+                new_embeddings = await self._embed_texts_with_retry(uncached_texts)
+
                 self._cache.set_many(uncached_texts, new_embeddings)
-                
+
                 for idx, emb in zip(uncached_indices, new_embeddings):
                     cached[idx] = emb
-            
+
             return [cached[i] for i in range(len(truncated_texts))]
-        
-        embeddings = await asyncio.to_thread(
-            self._embed_texts_sync,
-            truncated_texts,
-        )
+
+        embeddings = await self._embed_texts_with_retry(truncated_texts)
         return embeddings
 
     def _embed_texts_sync(self, texts: List[str]) -> List[List[float]]:

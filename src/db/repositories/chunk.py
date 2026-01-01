@@ -59,7 +59,7 @@ class ChunkRepository(BaseRepository[Chunk]):
         stmt = delete(Chunk).where(Chunk.document_id == document_id)
         result = await self.session.execute(stmt)
         await self.session.flush()
-        return result.rowcount
+        return result.rowcount or 0  # type: ignore[return-value]
 
     async def count_by_document(self, document_id: uuid.UUID) -> int:
         """Count chunks for a specific document.
@@ -145,8 +145,8 @@ class ChunkRepository(BaseRepository[Chunk]):
                 token_count=row.token_count,
                 created_at=row.created_at,
             )
-            # Add similarity score as attribute
-            chunk.similarity_score = row.similarity_score
+            # Add similarity score as attribute (dynamic attribute for search results)
+            setattr(chunk, 'similarity_score', row.similarity_score)
             chunks.append(chunk)
         
         return chunks

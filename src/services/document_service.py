@@ -14,9 +14,12 @@ from src.core.exceptions import (
     ValidationError,
     StorageError,
 )
+from src.core.logging import get_logger, bind_context
 from src.db.repositories.document import DocumentRepository
 from src.db.repositories.chunk import ChunkRepository
 from src.db.models.document import Document
+
+logger = get_logger(__name__)
 
 
 class DocumentService:
@@ -63,6 +66,16 @@ class DocumentService:
             ValidationError: If file validation fails.
             StorageError: If file storage fails.
         """
+        # Bind context for document upload tracing
+        bind_context(
+            user_id=str(user_id),
+            document_operation="upload",
+            document_filename=filename,
+            document_content_type=content_type,
+            document_size_bytes=len(file_content),
+        )
+        logger.info("Starting document upload")
+
         # Validate file extension
         ext = Path(filename).suffix.lower()
         if ext not in self.ALLOWED_EXTENSIONS:
@@ -122,6 +135,13 @@ class DocumentService:
         Raises:
             DocumentNotFoundError: If document not found or access denied.
         """
+        # Bind context for document retrieval tracing
+        bind_context(
+            document_id=str(document_id),
+            document_operation="get",
+            user_id=str(user_id) if user_id else None,
+        )
+
         document = await self.document_repo.get_by_id(document_id)
         
         if not document:
@@ -216,6 +236,14 @@ class DocumentService:
         Raises:
             DocumentNotFoundError: If document not found or access denied.
         """
+        # Bind context for document deletion tracing
+        bind_context(
+            document_id=str(document_id),
+            user_id=str(user_id),
+            document_operation="delete",
+        )
+        logger.info("Starting document deletion")
+
         document = await self.get_document(document_id, user_id)
 
         # Delete file from disk
@@ -254,6 +282,14 @@ class DocumentService:
         Raises:
             DocumentNotFoundError: If document not found.
         """
+        # Bind context for status update tracing
+        bind_context(
+            document_id=str(document_id),
+            document_operation="update_status",
+            document_status=status,
+        )
+        logger.info("Updating document status")
+
         document = await self.document_repo.update_status(
             document_id, status, error_message
         )

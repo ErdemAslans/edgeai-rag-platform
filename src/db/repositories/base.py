@@ -1,10 +1,11 @@
 """Base repository with common CRUD operations."""
 
 import uuid
-from typing import Generic, TypeVar, Type, List, Any, Dict
+from typing import Generic, TypeVar, Type, List, Any, Dict, cast
 
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, Column
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.engine import CursorResult
 
 from src.db.base import Base
 
@@ -24,6 +25,10 @@ class BaseRepository(Generic[ModelType]):
         self.model = model
         self.session = session
 
+    def _get_id_column(self) -> Column[uuid.UUID]:
+        """Get the id column from the model."""
+        return cast(Column[uuid.UUID], getattr(self.model, "id"))
+
     async def get_by_id(self, id: uuid.UUID) -> ModelType | None:
         """Get a record by its ID.
 
@@ -33,7 +38,8 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             The model instance or None if not found.
         """
-        stmt = select(self.model).where(self.model.id == id)
+        id_col = self._get_id_column()
+        stmt = select(self.model).where(id_col == id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -75,7 +81,8 @@ class BaseRepository(Generic[ModelType]):
         """
         if not ids:
             return []
-        stmt = select(self.model).where(self.model.id.in_(ids))
+        id_col = self._get_id_column()
+        stmt = select(self.model).where(id_col.in_(ids))
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -124,9 +131,10 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             The updated model instance or None if not found.
         """
+        id_col = self._get_id_column()
         stmt = (
             update(self.model)
-            .where(self.model.id == id)
+            .where(id_col == id)
             .values(**obj_in)
             .returning(self.model)
         )
@@ -143,10 +151,12 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             True if deleted, False if not found.
         """
-        stmt = delete(self.model).where(self.model.id == id)
+        id_col = self._get_id_column()
+        stmt = delete(self.model).where(id_col == id)
         result = await self.session.execute(stmt)
         await self.session.flush()
-        return result.rowcount > 0
+        cursor_result = cast(CursorResult[Any], result)
+        return bool(cursor_result.rowcount > 0)
 
     async def delete_many(self, ids: List[uuid.UUID]) -> int:
         """Delete multiple records by their IDs.
@@ -159,10 +169,12 @@ class BaseRepository(Generic[ModelType]):
         """
         if not ids:
             return 0
-        stmt = delete(self.model).where(self.model.id.in_(ids))
+        id_col = self._get_id_column()
+        stmt = delete(self.model).where(id_col.in_(ids))
         result = await self.session.execute(stmt)
         await self.session.flush()
-        return result.rowcount
+        cursor_result = cast(CursorResult[Any], result)
+        return int(cursor_result.rowcount)
 
     async def count(self) -> int:
         """Count total records.
@@ -183,6 +195,7 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             True if exists, False otherwise.
         """
-        stmt = select(func.count()).select_from(self.model).where(self.model.id == id)
+        id_col = self._get_id_column()
+        stmt = select(func.count()).select_from(self.model).where(id_col == id)
         result = await self.session.execute(stmt)
         return result.scalar_one() > 0

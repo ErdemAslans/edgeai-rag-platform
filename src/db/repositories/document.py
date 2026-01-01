@@ -12,13 +12,20 @@ from src.db.repositories.base import BaseRepository
 
 
 class DocumentRepository(BaseRepository[Document]):
-    """Repository for Document model operations."""
+    """Repository for Document model operations.
+
+    Note:
+        This repository does not manage session lifecycle. Session commit,
+        rollback, and cleanup are handled by the session context managers
+        in src.db.session (get_async_session, get_db_session).
+    """
 
     def __init__(self, session: AsyncSession):
         """Initialize the document repository.
 
         Args:
-            session: The async database session.
+            session: The async database session. The caller is responsible
+                for managing the session lifecycle (commit/rollback/close).
         """
         super().__init__(Document, session)
 
@@ -215,7 +222,7 @@ class DocumentRepository(BaseRepository[Document]):
         stmt = delete(Document).where(Document.user_id == user_id)
         result = await self.session.execute(stmt)
         await self.session.flush()
-        return result.rowcount
+        return result.rowcount or 0  # type: ignore[return-value]
 
     async def get_chunks(self, document_id: uuid.UUID) -> List:
         """Get all chunks for a document.

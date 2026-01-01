@@ -213,33 +213,36 @@ class HybridOrchestrator:
         
         # LangGraph agents
         for info in list_langgraph_agents():
-            agents.append({
+            agent_entry: Dict[str, Any] = {
                 "name": info["name"],
                 "framework": HybridFramework.LANGGRAPH.value,
                 "description": info["description"],
                 "status": "active",
                 "workflow_type": info.get("workflow_type"),
-            })
+            }
+            agents.append(agent_entry)
         
         # CrewAI agents
         for info in list_crewai_agents():
-            agents.append({
+            crew_entry: Dict[str, Any] = {
                 "name": info["name"],
                 "framework": HybridFramework.CREWAI.value,
                 "description": info["description"],
                 "status": "active",
                 "crew_agents": info.get("agents"),
-            })
+            }
+            agents.append(crew_entry)
         
         # GenAI agents
         for info in list_genai_agents():
-            agents.append({
+            genai_entry: Dict[str, Any] = {
                 "name": info["name"],
                 "framework": HybridFramework.GENAI.value,
                 "description": info["description"],
                 "status": "active",
                 "capabilities": info.get("capabilities"),
-            })
+            }
+            agents.append(genai_entry)
         
         return agents
     

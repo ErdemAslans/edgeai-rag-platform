@@ -52,6 +52,7 @@ class GenAIConversationalAgent:
     ) -> Dict[str, Any]:
         """Execute a conversational turn."""
         await self.initialize()
+        assert self.llm_service is not None
         start_time = time.time()
         
         if reset_history:
@@ -127,6 +128,7 @@ class GenAITaskExecutorAgent:
     ) -> Dict[str, Any]:
         """Execute a complex task with step-by-step approach."""
         await self.initialize()
+        assert self.llm_service is not None
         start_time = time.time()
         
         # Step 1: Task Analysis
@@ -245,6 +247,7 @@ class GenAIKnowledgeAgent:
     ) -> Dict[str, Any]:
         """Answer questions using knowledge base sources."""
         await self.initialize()
+        assert self.llm_service is not None
         start_time = time.time()
         
         # Build context from sources
@@ -362,6 +365,7 @@ class GenAIReasoningAgent:
     ) -> Dict[str, Any]:
         """Solve a problem with explicit reasoning."""
         await self.initialize()
+        assert self.llm_service is not None
         start_time = time.time()
         
         depth_instructions = {
@@ -464,6 +468,7 @@ class GenAICreativeAgent:
     ) -> Dict[str, Any]:
         """Generate creative content."""
         await self.initialize()
+        assert self.llm_service is not None
         start_time = time.time()
         
         type_instructions = {

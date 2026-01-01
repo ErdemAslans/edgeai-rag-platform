@@ -28,16 +28,65 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173", "http://localhost:8000"]
+    # Restrict allowed methods (no wildcard in production)
+    CORS_ALLOW_METHODS: List[str] = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    # Restrict allowed headers to only those needed
+    CORS_ALLOW_HEADERS: List[str] = [
+        "Accept",
+        "Accept-Language",
+        "Authorization",
+        "Content-Type",
+        "Origin",
+        "X-Requested-With",
+        "X-Request-ID",
+    ]
+    # Expose headers that clients can access
+    CORS_EXPOSE_HEADERS: List[str] = [
+        "Content-Length",
+        "Content-Type",
+        "X-Request-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "Retry-After",
+    ]
+    # Max age for preflight cache (12 hours)
+    CORS_MAX_AGE: int = 43200
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v):
+    def parse_cors_origins(cls, v: str | List[str]) -> List[str]:
         if isinstance(v, str):
             import json
             try:
-                return json.loads(v)
+                result: List[str] = json.loads(v)
+                return result
             except json.JSONDecodeError:
                 return [origin.strip() for origin in v.split(",")]
+        return v
+
+    @field_validator("CORS_ALLOW_METHODS", mode="before")
+    @classmethod
+    def parse_cors_methods(cls, v: str | List[str]) -> List[str]:
+        if isinstance(v, str):
+            import json
+            try:
+                result: List[str] = json.loads(v)
+                return result
+            except json.JSONDecodeError:
+                return [method.strip().upper() for method in v.split(",")]
+        return v
+
+    @field_validator("CORS_ALLOW_HEADERS", mode="before")
+    @classmethod
+    def parse_cors_headers(cls, v: str | List[str]) -> List[str]:
+        if isinstance(v, str):
+            import json
+            try:
+                result: List[str] = json.loads(v)
+                return result
+            except json.JSONDecodeError:
+                return [header.strip() for header in v.split(",")]
         return v
 
     # Database
@@ -82,11 +131,12 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_EXTENSIONS", mode="before")
     @classmethod
-    def parse_allowed_extensions(cls, v):
+    def parse_allowed_extensions(cls, v: str | List[str]) -> List[str]:
         if isinstance(v, str):
             import json
             try:
-                return json.loads(v)
+                result: List[str] = json.loads(v)
+                return result
             except json.JSONDecodeError:
                 return [ext.strip() for ext in v.split(",")]
         return v

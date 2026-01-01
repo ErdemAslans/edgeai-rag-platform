@@ -7,7 +7,7 @@ This module provides:
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, cast
 import uuid
 import hashlib
 import difflib
@@ -100,22 +100,29 @@ class DocumentVersionRepository(BaseRepository[DocumentVersion]):
 
     async def _create_diff_from_previous(self, version: DocumentVersion) -> None:
         """Create a diff between this version and the previous one."""
-        # Get previous version
+        # Get previous version - cast column types to their Python equivalents
+        doc_id = cast(uuid.UUID, version.document_id)
+        ver_num = cast(int, version.version_number)
         prev_version = await self.get_version(
-            version.document_id,
-            version.version_number - 1
+            doc_id,
+            ver_num - 1
         )
-        
+
         if not prev_version:
             return
-        
-        # Calculate diff
+
+        # Calculate diff - cast column types to their Python equivalents
+        version_id = cast(uuid.UUID, version.id)
+        prev_version_id = cast(uuid.UUID, prev_version.id)
+        old_content = cast(str, prev_version.content) if prev_version.content else ""
+        new_content = cast(str, version.content) if version.content else ""
+
         diff_repo = DocumentDiffRepository(self.session)
         await diff_repo.create_diff(
-            version_id=version.id,
-            from_version_id=prev_version.id,
-            old_content=prev_version.content or "",
-            new_content=version.content or "",
+            version_id=version_id,
+            from_version_id=prev_version_id,
+            old_content=old_content,
+            new_content=new_content,
         )
 
     async def get_version(

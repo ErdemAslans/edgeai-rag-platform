@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Integer, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models.agent_log import AgentLog
@@ -197,7 +197,7 @@ class AgentLogRepository(BaseRepository[AgentLog]):
         Returns:
             The created agent log instance.
         """
-        log_data = {
+        log_data: Dict[str, Any] = {
             "agent_name": agent_name,
             "input_data": input_data,
             "status": "pending",
@@ -206,7 +206,7 @@ class AgentLogRepository(BaseRepository[AgentLog]):
             log_data["query_id"] = query_id
         if model_name:
             log_data["model_name"] = model_name
-            
+
         return await self.create(log_data)
 
     async def mark_completed(
@@ -354,7 +354,7 @@ class AgentLogRepository(BaseRepository[AgentLog]):
                 AgentLog.agent_name,
                 func.count().label("total"),
                 func.sum(
-                    func.cast(AgentLog.status == "completed", type_=int)
+                    case((AgentLog.status == "completed", 1), else_=0)
                 ).label("successful"),
                 func.avg(AgentLog.execution_time_ms).label("avg_time"),
                 func.sum(AgentLog.tokens_used).label("total_tokens"),

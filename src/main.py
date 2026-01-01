@@ -1,27 +1,31 @@
 """Main FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import structlog
 
 from src.config import settings
-from src.api.middleware import RequestLoggingMiddleware
+from src.api.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
 from src.api.v1.router import api_router
+from src.core.di import get_container, register_services
+from src.core.exceptions import EdgeAIException, RateLimitError
 from src.core.logging import setup_logging
 from src.db.session import init_db, close_db
 
 logger = structlog.get_logger()
 
 # Global cache service instance
-_cache_service = None
+_cache_service: Optional[Any] = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager for startup and shutdown events."""
     global _cache_service
     
@@ -36,7 +40,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Initialize database connection pool
     await init_db()
     logger.info("Database connection pool initialized")
-    
+
+    # Register services in DI container
+    register_services()
+
     # Initialize Redis cache if enabled
     if settings.REDIS_ENABLED:
         from src.services.cache_service import get_cache_service
@@ -110,13 +117,56 @@ A hybrid edge-cloud platform for:
         lifespan=lifespan,
     )
 
-    # Configure CORS
+    # Configure CORS with strict origin checking
+    # Security: In production, wildcards are not allowed and origins must be explicit
+    cors_origins = settings.CORS_ORIGINS
+
+    # Validate CORS configuration in production
+    if settings.is_production:
+        # Reject wildcard origins in production
+        if "*" in cors_origins:
+            logger.error(
+                "CORS configuration error: Wildcard '*' origins not allowed in production"
+            )
+            raise ValueError(
+                "CORS wildcard origins are not allowed in production. "
+                "Please specify explicit origins in CORS_ORIGINS."
+            )
+        # Warn if no origins configured
+        if not cors_origins:
+            logger.warning("No CORS origins configured in production")
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=settings.CORS_ALLOW_METHODS,
+        allow_headers=settings.CORS_ALLOW_HEADERS,
+        expose_headers=settings.CORS_EXPOSE_HEADERS,
+        max_age=settings.CORS_MAX_AGE,
+    )
+
+    logger.info(
+        "CORS middleware configured",
+        origins_count=len(cors_origins),
+        allow_methods=settings.CORS_ALLOW_METHODS,
+        is_production=settings.is_production,
+    )
+
+    # Add security headers middleware
+    # Note: Security headers are added to all responses for protection against:
+    # - MIME type sniffing (X-Content-Type-Options: nosniff)
+    # - Clickjacking attacks (X-Frame-Options: DENY)
+    # - Protocol downgrade attacks (Strict-Transport-Security)
+    # - XSS attacks (X-XSS-Protection)
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        hsts_max_age=31536000,  # 1 year
+        hsts_include_subdomains=True,
+        frame_options="DENY",
+        content_type_options="nosniff",
+        xss_protection="1; mode=block",
+        referrer_policy="strict-origin-when-cross-origin",
     )
 
     # Add request logging middleware
@@ -134,28 +184,134 @@ A hybrid edge-cloud platform for:
     # Metrics endpoint
     if settings.METRICS_ENABLED:
         from src.core.metrics import get_metrics_response
-        
+
         @app.get(settings.METRICS_PATH, tags=["Monitoring"])
-        async def metrics():
+        async def metrics() -> Response:
             """Prometheus metrics endpoint."""
             content, content_type = get_metrics_response()
             return Response(content=content, media_type=content_type)
-        
+
         logger.info("Metrics endpoint enabled", path=settings.METRICS_PATH)
 
-    # Global exception handler to ensure CORS headers are always sent
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
-        """Handle all unhandled exceptions with proper CORS headers."""
-        logger.error(
-            "Unhandled exception",
-            error=str(exc),
+    # ==========================================================================
+    # Exception Handlers
+    # ==========================================================================
+
+    @app.exception_handler(EdgeAIException)
+    async def edgeai_exception_handler(
+        request: Request, exc: EdgeAIException
+    ) -> JSONResponse:
+        """Handle all EdgeAI custom exceptions with proper error format.
+
+        Uses the exception's http_status and to_dict() for consistent responses.
+        Logs the error with context and includes retryable hint in response.
+        """
+        logger.warning(
+            "EdgeAI exception",
+            error_code=exc.code,
+            error_message=exc.message,
+            http_status=exc.http_status,
+            retryable=exc.retryable,
+            path=request.url.path,
+            method=request.method,
+            details=exc.details,
+        )
+        response_content = exc.to_dict()
+        # Add retryable hint for clients
+        response_content["error"]["retryable"] = exc.retryable
+
+        headers = {}
+        # Add Retry-After header for rate limit errors
+        if isinstance(exc, RateLimitError) and exc.details.get("retry_after"):
+            headers["Retry-After"] = str(exc.details["retry_after"])
+
+        return JSONResponse(
+            status_code=exc.http_status,
+            content=response_content,
+            headers=headers if headers else None,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """Handle Pydantic/FastAPI request validation errors.
+
+        Converts validation errors to our standard error format for consistency.
+        """
+        errors = exc.errors()
+        logger.warning(
+            "Request validation error",
+            path=request.url.path,
+            method=request.method,
+            errors=errors,
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Request validation failed",
+                    "details": {"validation_errors": errors},
+                    "retryable": False,
+                }
+            },
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Handle Starlette HTTP exceptions with our standard format.
+
+        Ensures HTTP exceptions from FastAPI/Starlette use consistent error format.
+        """
+        logger.warning(
+            "HTTP exception",
+            status_code=exc.status_code,
+            detail=exc.detail,
             path=request.url.path,
             method=request.method,
         )
         return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": "HTTP_ERROR",
+                    "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+                    "details": {},
+                    "retryable": exc.status_code >= 500,
+                }
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        """Handle all unhandled exceptions with proper error format.
+
+        This is the fallback handler for unexpected errors. It logs the full
+        exception for debugging while returning a safe error message to clients.
+        """
+        logger.error(
+            "Unhandled exception",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            path=request.url.path,
+            method=request.method,
+            exc_info=True,
+        )
+        return JSONResponse(
             status_code=500,
-            content={"detail": "Internal server error"},
+            content={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred",
+                    "details": {},
+                    "retryable": True,
+                }
+            },
         )
 
     return app
@@ -166,7 +322,7 @@ app = create_application()
 
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> Dict[str, str]:
     """Root endpoint - basic API info."""
     return {
         "name": settings.PROJECT_NAME,

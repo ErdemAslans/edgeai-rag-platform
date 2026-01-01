@@ -277,12 +277,13 @@ Respond with the agent name only."""
 
         for framework, framework_agents in self.FRAMEWORK_AGENTS.items():
             for agent_name, keywords in framework_agents:
-                agents.append({
+                agent_info: Dict[str, Any] = {
                     "name": agent_name,
                     "description": f"Framework agent ({framework.value}): {', '.join(keywords[:3])}",
                     "framework": framework.value,
                     "keywords": keywords,
-                })
+                }
+                agents.append(agent_info)
 
         return agents
 

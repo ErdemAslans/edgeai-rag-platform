@@ -4,14 +4,22 @@ import uuid
 import time
 import json
 import asyncio
-from typing import List, Optional, AsyncGenerator
+from typing import Annotated, Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from src.api.deps import get_db, CurrentUser
+from src.api.deps import (
+    get_db,
+    get_embedding_service,
+    get_llm_service,
+    CurrentUser,
+    DbSession,
+    EmbeddingServiceDep,
+    LLMServiceDep,
+)
 from src.api.v1.schemas.queries import (
     QueryRequest,
     QueryResponse,
@@ -25,12 +33,11 @@ from src.api.v1.schemas.queries import (
     SourceChunk,
     RoutingInfo,
 )
+from src.core.di import get_container
 from src.db.repositories.query import QueryRepository
 from src.db.repositories.chunk import ChunkRepository
 from src.db.repositories.document import DocumentRepository
 from src.db.repositories.agent_log import AgentLogRepository
-from src.services.llm_service import get_llm_service
-from src.services.embedding_service import get_embedding_service
 from src.agents import get_orchestrator, OrchestratorMode, AgentType
 from src.agents import get_hybrid_orchestrator, HybridFramework, HybridAgentType
 
@@ -44,9 +51,14 @@ async def search_relevant_chunks(
     user_id: uuid.UUID,
     document_ids: Optional[List[uuid.UUID]] = None,
     limit: int = 5,
-) -> List[dict]:
-    """Search for relevant document chunks using vector similarity."""
-    embedding_service = get_embedding_service()
+) -> List[Dict[str, Any]]:
+    """Search for relevant document chunks using vector similarity.
+
+    Uses the DI container to get the embedding service singleton.
+    """
+    # Get embedding service from DI container (singleton)
+    container = get_container()
+    embedding_service = container.resolve("embedding_service")
     chunk_repo = ChunkRepository(db)
     doc_repo = DocumentRepository(db)
     
@@ -80,7 +92,7 @@ async def search_relevant_chunks(
 async def ask_question(
     query_data: QueryRequest,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> QueryResponse:
     """Ask a question using smart agent routing.
     
@@ -327,7 +339,7 @@ async def ask_question(
 async def ask_question_stream(
     query_data: QueryRequest,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> StreamingResponse:
     """Ask a question with streaming response using Server-Sent Events (SSE).
     
@@ -381,9 +393,10 @@ async def ask_question_stream(
             logger.error("Vector search failed in stream", error=str(e))
             yield f"data: {json.dumps({'type': 'error', 'message': f'Vector search failed: {str(e)}'})}\n\n"
         
-        # Get LLM service for streaming
+        # Get LLM service for streaming from DI container
         try:
-            llm_service = get_llm_service()
+            container = get_container()
+            llm_service = container.resolve("llm_service")
             
             # Build prompt with context
             if context_texts:
@@ -467,7 +480,7 @@ If you don't have enough information to answer, say so clearly."""
 async def chat_with_context(
     chat_data: ChatRequest,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ChatResponse:
     """Chat with smart agent routing and document context."""
     query_repo = QueryRepository(db)
@@ -583,15 +596,16 @@ async def chat_with_context(
 async def natural_language_to_sql(
     sql_request: SQLQueryRequest,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SQLQueryResponse:
     """Convert natural language to SQL query."""
     query_repo = QueryRepository(db)
     
     try:
-        # Get LLM service
-        llm_service = get_llm_service()
-        
+        # Get LLM service from DI container
+        container = get_container()
+        llm_service = container.resolve("llm_service")
+
         system_prompt = """You are an expert SQL query generator. Convert natural language
 questions into valid SQL queries. Follow these rules:
 - Generate only valid SQL syntax
@@ -644,7 +658,7 @@ questions into valid SQL queries. Follow these rules:
 @router.get("/history", response_model=QueryHistoryResponse)
 async def get_query_history(
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
 ) -> QueryHistoryResponse:
@@ -682,7 +696,7 @@ async def get_query_history(
 async def get_query(
     query_id: uuid.UUID,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> QueryResponse:
     """Get a specific query by ID."""
     query_repo = QueryRepository(db)

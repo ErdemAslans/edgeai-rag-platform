@@ -2,14 +2,14 @@
 
 import os
 import uuid
-from typing import List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from src.api.deps import get_db, CurrentUser
+from src.api.deps import get_db, get_embedding_service, CurrentUser, DbSession
 from src.api.v1.schemas.documents import (
     DocumentResponse,
     DocumentListResponse,
@@ -17,9 +17,9 @@ from src.api.v1.schemas.documents import (
     ChunkResponse,
 )
 from src.config import settings
+from src.core.di import get_container
 from src.db.repositories.document import DocumentRepository
 from src.db.repositories.chunk import ChunkRepository
-from src.services.embedding_service import get_embedding_service
 
 logger = structlog.get_logger()
 
@@ -43,9 +43,9 @@ def validate_file_size(file_size: int) -> bool:
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     background_tasks: BackgroundTasks,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
     file: UploadFile = File(...),
-    current_user: CurrentUser = None,
-    db: AsyncSession = Depends(get_db),
 ) -> DocumentResponse:
     """Upload a new document for processing."""
     # Validate file extension
@@ -99,16 +99,19 @@ async def upload_document(
 
 async def process_document_task(document_id: uuid.UUID) -> None:
     """Background task to process a document.
-    
+
     Creates its own database session to avoid issues with request-scoped sessions.
+    Uses the DI container to get the embedding service singleton.
     """
     from src.db.session import async_session_factory
-    
+
     async with async_session_factory() as db:
         try:
             doc_repo = DocumentRepository(db)
             chunk_repo = ChunkRepository(db)
-            embedding_service = get_embedding_service()
+            # Get embedding service from DI container (singleton)
+            container = get_container()
+            embedding_service = container.resolve("embedding_service")
             
             # Get document
             document = await doc_repo.get_by_id(document_id)
@@ -447,7 +450,7 @@ def split_text_into_chunks(text: str, chunk_size: int = 1000, overlap: int = 200
 @router.get("/", response_model=DocumentListResponse)
 async def list_documents(
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -474,7 +477,7 @@ async def list_documents(
 async def get_document(
     document_id: uuid.UUID,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DocumentResponse:
     """Get a specific document by ID."""
     doc_repo = DocumentRepository(db)
@@ -499,7 +502,7 @@ async def get_document(
 async def delete_document(
     document_id: uuid.UUID,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     """Delete a document."""
     doc_repo = DocumentRepository(db)
@@ -529,7 +532,7 @@ async def delete_document(
 async def get_document_chunks(
     document_id: uuid.UUID,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> List[ChunkResponse]:
     """Get all chunks for a document."""
     doc_repo = DocumentRepository(db)
@@ -556,7 +559,7 @@ async def process_document(
     document_id: uuid.UUID,
     current_user: CurrentUser,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DocumentStatusResponse:
     """Process a document (extract text, create chunks, generate embeddings)."""
     doc_repo = DocumentRepository(db)
@@ -599,7 +602,7 @@ async def reprocess_document(
     document_id: uuid.UUID,
     current_user: CurrentUser,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DocumentStatusResponse:
     """Reprocess a document (re-run ingestion pipeline)."""
     doc_repo = DocumentRepository(db)
@@ -641,7 +644,7 @@ async def reprocess_document(
 async def get_document_status(
     document_id: uuid.UUID,
     current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DocumentStatusResponse:
     """Get the processing status of a document."""
     doc_repo = DocumentRepository(db)
