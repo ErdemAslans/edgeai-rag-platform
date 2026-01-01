@@ -1,0 +1,30 @@
+[package]
+name = "edge-collector"
+version = "0.1.0"
+edition = "2021"
+description = "Edge log collector service for edge-to-cloud log streaming pipeline"
+authors = ["EdgeAI RAG Platform"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID generation
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Random number generation for dummy data
+rand = "0.8"
