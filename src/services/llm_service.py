@@ -4,12 +4,11 @@ import asyncio
 from typing import List, Dict, Any, AsyncGenerator
 from enum import Enum
 
-import structlog
-
 from src.config import settings
+from src.core.logging import get_logger, bind_context, with_context
 from src.core.retry import llm_retry
 
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 class LLMProvider(str, Enum):
@@ -165,6 +164,15 @@ class LLMService:
         Returns:
             The generated text response.
         """
+        # Bind context for LLM operation tracing
+        bind_context(
+            llm_provider=self.provider.value,
+            llm_model=self.model,
+            llm_operation="generate",
+            llm_temperature=temperature,
+            llm_max_tokens=max_tokens,
+        )
+
         if self.provider == LLMProvider.GROQ:
             return await self._generate_groq(
                 prompt, system_prompt, temperature, max_tokens
@@ -252,6 +260,15 @@ class LLMService:
         Returns:
             Generated response incorporating context.
         """
+        # Bind context for RAG operation tracing
+        bind_context(
+            llm_provider=self.provider.value,
+            llm_model=self.model,
+            llm_operation="generate_with_context",
+            rag_context_count=len(context),
+            rag_max_context_tokens=max_context_tokens,
+        )
+
         if not system_prompt:
             system_prompt = """You are a helpful AI assistant. Use the provided context to answer the user's question accurately. 
 If the context doesn't contain relevant information, say so and provide what help you can.
@@ -304,6 +321,15 @@ Please provide a helpful answer based on the context above."""
         Yields:
             Generated text chunks.
         """
+        # Bind context for streaming operation tracing
+        bind_context(
+            llm_provider=self.provider.value,
+            llm_model=self.model,
+            llm_operation="generate_stream",
+            llm_temperature=temperature,
+            llm_max_tokens=max_tokens,
+        )
+
         if self.provider == LLMProvider.GROQ:
             async for chunk in self._stream_groq(
                 prompt, system_prompt, temperature, max_tokens
