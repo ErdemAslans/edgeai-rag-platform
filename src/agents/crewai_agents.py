@@ -88,12 +88,13 @@ class CrewAIResearchCrew:
     ) -> Dict[str, Any]:
         """
         Execute research task with the crew.
-        
+
         Since CrewAI may not be fully available or configured,
         we implement a fallback using our LLM service.
         """
         await self.initialize()
-        
+        assert self.llm_service is not None
+
         if CREWAI_AVAILABLE:
             try:
                 return await self._execute_with_crewai(query, context, **kwargs)
@@ -308,7 +309,8 @@ class CrewAIQACrew:
     ) -> Dict[str, Any]:
         """Execute QA task with the crew."""
         await self.initialize()
-        
+        assert self.llm_service is not None
+
         # Build context from sources if provided
         full_context = context or ""
         if sources:
@@ -414,7 +416,8 @@ class CrewAICodeReviewCrew:
     ) -> Dict[str, Any]:
         """Execute code review with the crew."""
         await self.initialize()
-        
+        assert self.llm_service is not None
+
         # Phase 1: Code Analysis
         analysis_prompt = f"""You are an expert code analyst reviewing {language} code.
 

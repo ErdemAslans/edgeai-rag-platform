@@ -215,7 +215,7 @@ class DocumentRepository(BaseRepository[Document]):
         stmt = delete(Document).where(Document.user_id == user_id)
         result = await self.session.execute(stmt)
         await self.session.flush()
-        return result.rowcount
+        return result.rowcount or 0  # type: ignore[return-value]
 
     async def get_chunks(self, document_id: uuid.UUID) -> List:
         """Get all chunks for a document.

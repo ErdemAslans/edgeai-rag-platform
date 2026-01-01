@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Dict, Optional, Any
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -269,7 +269,7 @@ class QueryRepository(BaseRepository[Query]):
         if user_id:
             agent_stmt = agent_stmt.where(Query.user_id == user_id)
         agent_result = await self.session.execute(agent_stmt)
-        agent_distribution = dict(agent_result.fetchall())
+        agent_distribution: Dict[Optional[str], int] = {row[0]: row[1] for row in agent_result.fetchall()}
 
         return {
             "total_queries": total_count,

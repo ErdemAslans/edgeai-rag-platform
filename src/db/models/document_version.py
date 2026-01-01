@@ -56,7 +56,7 @@ class DocumentVersion(Base):
     
     # Version info
     version_number = Column(Integer, nullable=False)
-    version_type = Column(SQLEnum(VersionType), nullable=False, default=VersionType.UPDATE)
+    version_type: "Column[VersionType]" = Column(SQLEnum(VersionType), nullable=False, default=VersionType.UPDATE)
     
     # Content snapshot
     title = Column(String(500), nullable=False)

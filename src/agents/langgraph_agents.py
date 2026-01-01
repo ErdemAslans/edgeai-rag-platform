@@ -1,6 +1,6 @@
 """LangGraph-based agents for graph workflow processing."""
 
-from typing import Dict, Any, List, TypedDict, Annotated, Sequence, Optional
+from typing import Dict, Any, List, TypedDict, Annotated, Sequence, Optional, cast
 from enum import Enum
 import operator
 
@@ -76,7 +76,7 @@ class LangGraphResearchAgent:
         self.graph = self._build_graph()
         self._initialized = True
 
-    def _build_graph(self) -> StateGraph:
+    def _build_graph(self) -> Any:
         """Build the research workflow graph."""
         workflow = StateGraph(ResearchState)
 
@@ -106,8 +106,9 @@ class LangGraphResearchAgent:
 
     async def _analyze_query(self, state: ResearchState) -> ResearchState:
         """Analyze the query to understand research needs."""
+        assert self.llm_service is not None
         query = state["query"]
-        
+
         prompt = f"""Analyze this research query and identify key aspects to investigate:
 
 Query: {query}
@@ -130,9 +131,10 @@ Provide a brief analysis of:
 
     async def _search_context(self, state: ResearchState) -> ResearchState:
         """Process context for relevant information."""
+        assert self.llm_service is not None
         context = state["context"]
         query = state["query"]
-        
+
         if not context:
             state["research_notes"].append("No context available for research.")
             return state
@@ -161,6 +163,7 @@ Extract and summarize the most relevant facts and information."""
 
     async def _synthesize(self, state: ResearchState) -> ResearchState:
         """Synthesize research findings into an answer."""
+        assert self.llm_service is not None
         notes = "\n\n".join(state["research_notes"])
         query = state["query"]
 
@@ -195,6 +198,7 @@ Provide a well-organized answer based on the research."""
 
     async def _refine(self, state: ResearchState) -> ResearchState:
         """Refine the research by identifying gaps."""
+        assert self.llm_service is not None
         prompt = f"""The current answer may be incomplete. Identify what additional information is needed:
 
 Query: {state['query']}
@@ -293,7 +297,7 @@ class LangGraphAnalysisAgent:
         self.graph = self._build_graph()
         self._initialized = True
 
-    def _build_graph(self) -> StateGraph:
+    def _build_graph(self) -> Any:
         """Build the analysis workflow graph."""
         workflow = StateGraph(AnalysisState)
 
@@ -314,6 +318,7 @@ class LangGraphAnalysisAgent:
 
     async def _extract_entities(self, state: AnalysisState) -> AnalysisState:
         """Extract entities from documents."""
+        assert self.llm_service is not None
         context = "\n\n".join(state["context"][:5]) if state["context"] else "No content provided"
 
         prompt = f"""Extract key entities from this content:
@@ -340,6 +345,7 @@ List entities in these categories:
 
     async def _identify_themes(self, state: AnalysisState) -> AnalysisState:
         """Identify main themes in the content."""
+        assert self.llm_service is not None
         context = "\n\n".join(state["context"][:5]) if state["context"] else "No content provided"
 
         prompt = f"""Identify the main themes and topics in this content:
@@ -363,6 +369,7 @@ For each theme:
 
     async def _create_summary(self, state: AnalysisState) -> AnalysisState:
         """Create a summary of the content."""
+        assert self.llm_service is not None
         context = "\n\n".join(state["context"][:5]) if state["context"] else "No content provided"
 
         prompt = f"""Create a concise summary of this content:
@@ -387,6 +394,7 @@ Focus on:
 
     async def _compile_analysis(self, state: AnalysisState) -> AnalysisState:
         """Compile all analysis into final output."""
+        assert self.llm_service is not None
         entities = "\n".join(state["entities"])
         themes = "\n".join(state["themes"])
         summary = state["summary"]
@@ -491,7 +499,7 @@ class LangGraphReasoningAgent:
         self.graph = self._build_graph()
         self._initialized = True
 
-    def _build_graph(self) -> StateGraph:
+    def _build_graph(self) -> Any:
         """Build the reasoning workflow graph."""
         workflow = StateGraph(MultiStepState)
 
@@ -515,6 +523,7 @@ class LangGraphReasoningAgent:
 
     async def _decompose_problem(self, state: MultiStepState) -> MultiStepState:
         """Decompose the problem into steps."""
+        assert self.llm_service is not None
         query = state["query"]
         context_hint = f"\n\nContext available: {len(state['context'])} documents" if state["context"] else ""
 
@@ -549,6 +558,7 @@ Format each step as: "Step N: [description]"
 
     async def _reason_step(self, state: MultiStepState) -> MultiStepState:
         """Execute one reasoning step."""
+        assert self.llm_service is not None
         current_idx = state["current_step"]
         if current_idx >= len(state["steps"]):
             return state
@@ -591,6 +601,7 @@ Provide your reasoning for this step:"""
 
     async def _synthesize_answer(self, state: MultiStepState) -> MultiStepState:
         """Synthesize final answer from reasoning chain."""
+        assert self.llm_service is not None
         reasoning = "\n\n".join(state["reasoning_chain"])
 
         prompt = f"""Based on this step-by-step reasoning, provide a final answer:

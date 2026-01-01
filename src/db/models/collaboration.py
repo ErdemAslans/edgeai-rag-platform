@@ -66,7 +66,7 @@ class DocumentShare(Base):
     )
     
     # Share type and recipient
-    share_type = Column(SQLEnum(ShareType), nullable=False, default=ShareType.USER)
+    share_type: "Column[ShareType]" = Column(SQLEnum(ShareType), nullable=False, default=ShareType.USER)
     shared_with_user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -83,7 +83,7 @@ class DocumentShare(Base):
     link_password_hash = Column(String(255), nullable=True)
     
     # Permission level
-    permission = Column(SQLEnum(SharePermission), nullable=False, default=SharePermission.VIEW)
+    permission: "Column[SharePermission]" = Column(SQLEnum(SharePermission), nullable=False, default=SharePermission.VIEW)
     
     # Sharing metadata
     shared_by = Column(

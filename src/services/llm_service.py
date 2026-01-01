@@ -102,7 +102,7 @@ class LLMService:
             provider: The LLM provider to use. Defaults to settings configuration.
         """
         self.provider = provider or LLMProvider(settings.LLM_PROVIDER)
-        self._client = None
+        self._client: Any = None
         self.token_counter = TokenCounter()
         self._initialize_client()
 
@@ -198,8 +198,10 @@ class LLMService:
                 )
                 
                 await asyncio.sleep(delay)
-        
-        raise last_exception
+
+        if last_exception is not None:
+            raise last_exception
+        raise RuntimeError("Retry failed with no exception recorded")
 
     async def generate(
         self,
