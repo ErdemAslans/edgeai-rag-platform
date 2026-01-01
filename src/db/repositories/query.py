@@ -13,13 +13,20 @@ from src.db.repositories.base import BaseRepository
 
 
 class QueryRepository(BaseRepository[Query]):
-    """Repository for Query model operations."""
+    """Repository for Query model operations.
+
+    Note:
+        This repository does not manage session lifecycle. Session commit,
+        rollback, and cleanup are handled by the session context managers
+        in src.db.session (get_async_session, get_db_session).
+    """
 
     def __init__(self, session: AsyncSession):
         """Initialize the query repository.
 
         Args:
-            session: The async database session.
+            session: The async database session. The caller is responsible
+                for managing the session lifecycle (commit/rollback/close).
         """
         super().__init__(Query, session)
 
