@@ -1,7 +1,7 @@
 """Main FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +17,11 @@ from src.db.session import init_db, close_db
 logger = structlog.get_logger()
 
 # Global cache service instance
-_cache_service = None
+_cache_service: Optional[Any] = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager for startup and shutdown events."""
     global _cache_service
     
@@ -134,18 +134,18 @@ A hybrid edge-cloud platform for:
     # Metrics endpoint
     if settings.METRICS_ENABLED:
         from src.core.metrics import get_metrics_response
-        
+
         @app.get(settings.METRICS_PATH, tags=["Monitoring"])
-        async def metrics():
+        async def metrics() -> Response:
             """Prometheus metrics endpoint."""
             content, content_type = get_metrics_response()
             return Response(content=content, media_type=content_type)
-        
+
         logger.info("Metrics endpoint enabled", path=settings.METRICS_PATH)
 
     # Global exception handler to ensure CORS headers are always sent
     @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Handle all unhandled exceptions with proper CORS headers."""
         logger.error(
             "Unhandled exception",
@@ -166,7 +166,7 @@ app = create_application()
 
 
 @app.get("/", tags=["Root"])
-async def root():
+async def root() -> Dict[str, str]:
     """Root endpoint - basic API info."""
     return {
         "name": settings.PROJECT_NAME,

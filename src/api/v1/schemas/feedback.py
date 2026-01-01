@@ -54,13 +54,15 @@ class FeedbackCreate(BaseModel):
     )
 
     @validator("rating")
-    def validate_rating(cls, v, values):
+    def validate_rating(cls, v: Optional[int], values: Dict[str, Any]) -> Optional[int]:
         if values.get("feedback_type") == FeedbackType.RATING and v is None:
             raise ValueError("Rating is required for rating type feedback")
         return v
 
     @validator("category")
-    def validate_category(cls, v, values):
+    def validate_category(
+        cls, v: Optional[FeedbackCategory], values: Dict[str, Any]
+    ) -> Optional[FeedbackCategory]:
         if not values.get("is_positive") and v is None and values.get("feedback_type") == FeedbackType.DETAILED:
             raise ValueError("Category is required for detailed negative feedback")
         return v

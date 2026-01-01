@@ -31,11 +31,12 @@ class Settings(BaseSettings):
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v):
+    def parse_cors_origins(cls, v: str | List[str]) -> List[str]:
         if isinstance(v, str):
             import json
             try:
-                return json.loads(v)
+                result: List[str] = json.loads(v)
+                return result
             except json.JSONDecodeError:
                 return [origin.strip() for origin in v.split(",")]
         return v
@@ -82,11 +83,12 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_EXTENSIONS", mode="before")
     @classmethod
-    def parse_allowed_extensions(cls, v):
+    def parse_allowed_extensions(cls, v: str | List[str]) -> List[str]:
         if isinstance(v, str):
             import json
             try:
-                return json.loads(v)
+                result: List[str] = json.loads(v)
+                return result
             except json.JSONDecodeError:
                 return [ext.strip() for ext in v.split(",")]
         return v

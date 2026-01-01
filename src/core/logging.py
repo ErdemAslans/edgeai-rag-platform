@@ -36,7 +36,7 @@ def setup_logging() -> None:
     if settings.LOG_FORMAT == "json":
         # JSON format for production
         shared_processors.append(structlog.processors.format_exc_info)
-        renderer = structlog.processors.JSONRenderer()
+        renderer: Any = structlog.processors.JSONRenderer()
     else:
         # Console format for development
         renderer = structlog.dev.ConsoleRenderer(colors=True)

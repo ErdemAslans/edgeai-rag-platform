@@ -86,7 +86,7 @@ class Conversation:
         Returns:
             Concatenated recent messages as context.
         """
-        context_parts = []
+        context_parts: list[str] = []
         total_chars = 0
         
         for msg in reversed(self.messages):
