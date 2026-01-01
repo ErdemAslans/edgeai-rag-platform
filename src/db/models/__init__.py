@@ -5,6 +5,7 @@ from src.db.models.document import Document
 from src.db.models.chunk import Chunk
 from src.db.models.query import Query, QueryChunk
 from src.db.models.agent_log import AgentLog
+from src.db.models.edge_log import EdgeLog
 from src.db.models.feedback import (
     QueryFeedback,
     AgentPerformanceMetrics,
@@ -35,6 +36,7 @@ __all__ = [
     "Query",
     "QueryChunk",
     "AgentLog",
+    "EdgeLog",
     "QueryFeedback",
     "AgentPerformanceMetrics",
     "QueryTypePattern",

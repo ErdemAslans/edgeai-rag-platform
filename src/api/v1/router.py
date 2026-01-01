@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from src.api.v1.endpoints import auth, documents, queries, agents, health, dashboard, roles, feedback, search, analytics, versions, knowledge_graph, collaboration
+from src.api.v1.endpoints import auth, documents, queries, agents, health, dashboard, roles, feedback, search, analytics, versions, knowledge_graph, collaboration, ingest
 
 api_router = APIRouter()
 
@@ -80,4 +80,10 @@ api_router.include_router(
 api_router.include_router(
     collaboration.router,
     tags=["collaboration"],
+)
+
+api_router.include_router(
+    ingest.router,
+    prefix="/ingest",
+    tags=["ingest"],
 )
