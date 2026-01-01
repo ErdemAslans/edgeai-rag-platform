@@ -99,3 +99,5 @@ docker-compose.override.yml
 
 # Auto Claude data directory
 .auto-claude/
+.worktrees/
+.auto-claude-status
