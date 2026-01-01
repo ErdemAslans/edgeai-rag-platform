@@ -11,7 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import structlog
 
 from src.config import settings
-from src.api.middleware import RequestLoggingMiddleware
+from src.api.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
 from src.api.v1.router import api_router
 from src.core.di import get_container, register_services
 from src.core.exceptions import EdgeAIException, RateLimitError
@@ -124,6 +124,22 @@ A hybrid edge-cloud platform for:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    # Add security headers middleware
+    # Note: Security headers are added to all responses for protection against:
+    # - MIME type sniffing (X-Content-Type-Options: nosniff)
+    # - Clickjacking attacks (X-Frame-Options: DENY)
+    # - Protocol downgrade attacks (Strict-Transport-Security)
+    # - XSS attacks (X-XSS-Protection)
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        hsts_max_age=31536000,  # 1 year
+        hsts_include_subdomains=True,
+        frame_options="DENY",
+        content_type_options="nosniff",
+        xss_protection="1; mode=block",
+        referrer_policy="strict-origin-when-cross-origin",
     )
 
     # Add request logging middleware

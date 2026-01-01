@@ -141,3 +141,86 @@ class CORSDebugMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         return response
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware for adding security headers to all responses.
+
+    This middleware adds essential security headers to protect against:
+    - MIME type sniffing (X-Content-Type-Options)
+    - Clickjacking attacks (X-Frame-Options)
+    - Protocol downgrade attacks (Strict-Transport-Security)
+    - XSS attacks (X-XSS-Protection, Content-Security-Policy)
+    - Referrer information leakage (Referrer-Policy)
+    - Feature/Permission policy abuse (Permissions-Policy)
+    """
+
+    def __init__(
+        self,
+        app,
+        hsts_max_age: int = 31536000,
+        hsts_include_subdomains: bool = True,
+        hsts_preload: bool = False,
+        frame_options: str = "DENY",
+        content_type_options: str = "nosniff",
+        xss_protection: str = "1; mode=block",
+        referrer_policy: str = "strict-origin-when-cross-origin",
+        permissions_policy: str | None = None,
+        content_security_policy: str | None = None,
+    ):
+        """Initialize SecurityHeadersMiddleware with configurable options.
+
+        Args:
+            app: The ASGI application
+            hsts_max_age: Max age for HSTS in seconds (default: 1 year)
+            hsts_include_subdomains: Include subdomains in HSTS
+            hsts_preload: Enable HSTS preload (requires domain submission)
+            frame_options: X-Frame-Options value (DENY, SAMEORIGIN)
+            content_type_options: X-Content-Type-Options value
+            xss_protection: X-XSS-Protection value
+            referrer_policy: Referrer-Policy value
+            permissions_policy: Optional Permissions-Policy header value
+            content_security_policy: Optional Content-Security-Policy header value
+        """
+        super().__init__(app)
+        self.hsts_max_age = hsts_max_age
+        self.hsts_include_subdomains = hsts_include_subdomains
+        self.hsts_preload = hsts_preload
+        self.frame_options = frame_options
+        self.content_type_options = content_type_options
+        self.xss_protection = xss_protection
+        self.referrer_policy = referrer_policy
+        self.permissions_policy = permissions_policy
+        self.content_security_policy = content_security_policy
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        response = await call_next(request)
+
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = self.content_type_options
+
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = self.frame_options
+
+        # Build HSTS header
+        hsts_value = f"max-age={self.hsts_max_age}"
+        if self.hsts_include_subdomains:
+            hsts_value += "; includeSubDomains"
+        if self.hsts_preload:
+            hsts_value += "; preload"
+        response.headers["Strict-Transport-Security"] = hsts_value
+
+        # XSS protection (legacy but still useful for older browsers)
+        response.headers["X-XSS-Protection"] = self.xss_protection
+
+        # Referrer policy
+        response.headers["Referrer-Policy"] = self.referrer_policy
+
+        # Optional headers
+        if self.permissions_policy:
+            response.headers["Permissions-Policy"] = self.permissions_policy
+
+        if self.content_security_policy:
+            response.headers["Content-Security-Policy"] = self.content_security_policy
+
+        return response
