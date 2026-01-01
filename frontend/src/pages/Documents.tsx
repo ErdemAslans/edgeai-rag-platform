@@ -47,6 +47,7 @@ const Documents = () => {
 
   const handleUploadComplete = (response: any) => {
     setIsUploadModalOpen(false);
+    refetch(); // Listeyi yenile
   };
 
   const handleDelete = (id: string) => {

@@ -22,8 +22,8 @@ from src.db.models.document import Document
 class DocumentService:
     """Service for document management and processing."""
 
-    ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".json"}
-    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".json", ".csv", ".docx", ".pptx", ".xlsx", ".xls", ".html", ".htm", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
+    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 
     def __init__(self, session: AsyncSession):
         """Initialize the document service.

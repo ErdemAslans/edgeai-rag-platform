@@ -201,8 +201,16 @@ async def extract_text_from_file(file_path: Path) -> str:
         logger.info("PDF appears to be scanned, using Docling OCR")
         return await extract_with_docling(file_path, enable_ocr=True)
     
-    # DOCX, PPTX - Use Docling (fast, native parsing)
-    elif ext in {".docx", ".pptx"}:
+    # DOCX - Try Docling first, fallback to python-docx
+    elif ext == ".docx":
+        try:
+            return await extract_with_docling(file_path, enable_ocr=False)
+        except Exception as e:
+            logger.warning("Docling failed for DOCX, trying python-docx", error=str(e))
+            return await extract_docx_fallback(file_path)
+    
+    # PPTX - Use Docling
+    elif ext == ".pptx":
         return await extract_with_docling(file_path, enable_ocr=False)
     
     # Images - Use Docling with OCR
@@ -281,6 +289,35 @@ async def extract_text_with_pypdf(file_path: Path) -> str:
         raise Exception(f"pypdf extraction failed: {str(e)}")
 
 
+async def extract_docx_fallback(file_path: Path) -> str:
+    """Fallback DOCX extraction using python-docx."""
+    try:
+        from docx import Document as DocxDocument
+        
+        doc = DocxDocument(str(file_path))
+        paragraphs = []
+        
+        for para in doc.paragraphs:
+            if para.text.strip():
+                paragraphs.append(para.text)
+        
+        # Also extract from tables
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                if row_text:
+                    paragraphs.append(row_text)
+        
+        content = "\n\n".join(paragraphs)
+        logger.info("python-docx extraction complete", content_length=len(content))
+        return content
+        
+    except ImportError:
+        raise Exception("python-docx not installed. Install with: pip install python-docx")
+    except Exception as e:
+        raise Exception(f"DOCX extraction failed: {str(e)}")
+
+
 async def extract_with_docling(file_path: Path, enable_ocr: bool = False) -> str:
     """Extract text using IBM Docling for advanced document processing.
     
@@ -288,51 +325,86 @@ async def extract_with_docling(file_path: Path, enable_ocr: bool = False) -> str
     """
     try:
         from docling.document_converter import DocumentConverter
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions
-        from docling.document_converter import PdfFormatOption
         
         logger.info("Using Docling for document conversion", file_path=str(file_path), ocr_enabled=enable_ocr)
         
-        # Configure pipeline options
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.do_ocr = enable_ocr
-        pipeline_options.do_table_structure = True
-        
-        # Create converter with options
-        converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-            }
-        )
+        # Create converter with GPU support if available
+        try:
+            from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
+            from docling.datamodel.base_models import InputFormat
+            from docling.document_converter import PdfFormatOption
+            import torch
+
+            pipeline_options = PdfPipelineOptions()
+            pipeline_options.do_ocr = enable_ocr
+            pipeline_options.do_table_structure = True
+            
+            if torch.cuda.is_available():
+                pipeline_options.accelerator_options = AcceleratorOptions(
+                    num_threads=4, device="cuda"
+                )
+                logger.info("Enabled GPU acceleration for Docling", device="cuda")
+
+            converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                }
+            )
+        except Exception as e:
+            logger.warning("Could not configure advanced Docling options, using defaults", error=str(e))
+            converter = DocumentConverter()
         
         # Convert document
         result = converter.convert(str(file_path))
         
-        # Export to markdown (preserves structure)
-        markdown_content = result.document.export_to_markdown()
+        # Try markdown export first (preserves structure)
+        try:
+            markdown_content = result.document.export_to_markdown()
+            if markdown_content and markdown_content.strip():
+                logger.info(
+                    "Docling extraction complete (markdown)",
+                    file_path=str(file_path),
+                    content_length=len(markdown_content),
+                )
+                return markdown_content
+        except Exception as md_err:
+            logger.warning("Markdown export failed, trying text", error=str(md_err))
         
-        logger.info(
-            "Docling extraction complete",
-            file_path=str(file_path),
-            content_length=len(markdown_content),
-        )
-        
-        if not markdown_content or not markdown_content.strip():
-            # Try plain text export as fallback
+        # Fallback to plain text
+        try:
             text_content = result.document.export_to_text()
             if text_content and text_content.strip():
+                logger.info(
+                    "Docling extraction complete (text)",
+                    file_path=str(file_path),
+                    content_length=len(text_content),
+                )
                 return text_content
-            raise Exception("No content could be extracted from document")
+        except Exception as txt_err:
+            logger.warning("Text export failed", error=str(txt_err))
         
-        return markdown_content
+        raise Exception("Docling could not extract any content from document")
         
     except ImportError as e:
         logger.error("Docling not installed", error=str(e))
-        raise Exception(f"Docling not installed: {str(e)}")
+        raise Exception(
+            f"Docling library not available. Install with: pip install docling. Error: {str(e)}"
+        )
     except Exception as e:
-        logger.error("Docling extraction failed", error=str(e))
-        raise Exception(f"Docling extraction failed: {str(e)}")
+        error_msg = str(e)
+        logger.error("Docling extraction failed", error=error_msg, file_path=str(file_path))
+        
+        # Provide helpful error messages
+        if "torch" in error_msg.lower() or "cuda" in error_msg.lower():
+            raise Exception(
+                f"Docling GPU/PyTorch error. Try setting CUDA_VISIBLE_DEVICES='' for CPU mode. Error: {error_msg}"
+            )
+        elif "memory" in error_msg.lower():
+            raise Exception(
+                f"Out of memory during document processing. Try a smaller file. Error: {error_msg}"
+            )
+        else:
+            raise Exception(f"Document parsing failed: {error_msg}")
 
 
 def split_text_into_chunks(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:

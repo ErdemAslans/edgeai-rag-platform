@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     # Embeddings
     EMBEDDING_PROVIDER: str = "huggingface"  # huggingface or ollama
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
     VECTOR_DIMENSION: int = 384
 
     # Vector Search
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # File Upload
-    MAX_UPLOAD_SIZE_MB: int = 50
+    MAX_UPLOAD_SIZE_MB: int = 100
     UPLOAD_DIR: str = "./uploads"
     # Docling supports: PDF, DOCX, PPTX, HTML, images (PNG, JPG, TIFF, BMP)
     ALLOWED_EXTENSIONS: List[str] = [

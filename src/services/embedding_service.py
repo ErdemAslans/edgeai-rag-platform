@@ -66,9 +66,9 @@ class EmbeddingCache:
 class EmbeddingService:
     """Service for generating text embeddings using HuggingFace sentence-transformers."""
 
-    MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+    MODEL_NAME = "BAAI/bge-small-en-v1.5"
     EMBEDDING_DIMENSION = 384
-    MAX_SEQUENCE_LENGTH = 256
+    MAX_SEQUENCE_LENGTH = 512
 
     _instance = None
     _model = None
@@ -92,16 +92,24 @@ class EmbeddingService:
         """Load the sentence transformer model."""
         try:
             from sentence_transformers import SentenceTransformer
+            import torch
 
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(
                 "Loading embedding model",
                 model_name=self.MODEL_NAME,
+                device=device,
+                cuda_available=torch.cuda.is_available(),
+                gpu_name=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
             )
-            self._model = SentenceTransformer(self.MODEL_NAME)
+            
+            self._model = SentenceTransformer(self.MODEL_NAME, device=device)
+            
             logger.info(
                 "Embedding model loaded successfully",
                 model_name=self.MODEL_NAME,
                 embedding_dimension=self.EMBEDDING_DIMENSION,
+                device=self._model.device
             )
         except ImportError:
             logger.error("sentence-transformers library not installed")

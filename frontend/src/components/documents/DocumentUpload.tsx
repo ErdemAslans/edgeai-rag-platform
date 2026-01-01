@@ -34,17 +34,16 @@ const DocumentUpload = ({ onUploadComplete }: DocumentUploadProps) => {
   };
 
   const handleFileSelect = (file: File) => {
-    // Validate by file extension instead of MIME type for better compatibility
-    const validExtensions = ['pdf', 'txt', 'csv', 'xlsx', 'xls'];
+    const validExtensions = ['pdf', 'txt', 'md', 'csv', 'json', 'xlsx', 'xls', 'docx', 'pptx', 'html', 'htm', 'png', 'jpg', 'jpeg'];
     const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
     
     if (!validExtensions.includes(fileExtension)) {
-      addToast('Invalid file type. Please upload PDF, TXT, CSV, or Excel files.', 'error');
+      addToast('Invalid file type. Supported: PDF, DOCX, PPTX, TXT, MD, CSV, Excel, HTML, images.', 'error');
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      addToast('File size exceeds 10MB limit.', 'error');
+    if (file.size > 100 * 1024 * 1024) {
+      addToast('File size exceeds 100MB limit.', 'error');
       return;
     }
 
@@ -98,7 +97,7 @@ const DocumentUpload = ({ onUploadComplete }: DocumentUploadProps) => {
           type="file"
           className="hidden"
           onChange={handleInputChange}
-          accept=".pdf,.txt,.csv,.xlsx,.xls"
+          accept=".pdf,.txt,.md,.csv,.json,.xlsx,.xls,.docx,.pptx,.html,.htm,.png,.jpg,.jpeg"
         />
         
         {!selectedFile ? (
@@ -114,7 +113,7 @@ const DocumentUpload = ({ onUploadComplete }: DocumentUploadProps) => {
               </button>
             </p>
             <p className="text-sm text-text-secondary">
-              PDF, TXT, CSV, or Excel files up to 10MB
+              PDF, DOCX, PPTX, TXT, Excel, images up to 100MB
             </p>
           </div>
         ) : (
