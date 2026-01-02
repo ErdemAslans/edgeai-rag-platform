@@ -174,6 +174,9 @@ pub struct LogClient {
 
     /// Client operation statistics
     stats: std::sync::atomic::AtomicU64,
+
+    /// API key for authentication
+    api_key: Option<String>,
 }
 
 impl LogClient {
@@ -200,6 +203,7 @@ impl LogClient {
             max_retries: config.max_retries,
             timeout: config.request_timeout,
             stats: std::sync::atomic::AtomicU64::new(0),
+            api_key: config.api_key.clone(),
         })
     }
 
@@ -224,6 +228,7 @@ impl LogClient {
             max_retries,
             timeout,
             stats: std::sync::atomic::AtomicU64::new(0),
+            api_key: None,
         })
     }
 
@@ -326,13 +331,18 @@ impl LogClient {
 
     /// Send a single HTTP request without retry logic.
     async fn send_request(&self, batch: &LogBatch) -> Result<IngestResponse, ClientError> {
-        let response = self
+        let mut request = self
             .client
             .post(&self.ingest_url)
             .timeout(self.timeout)
-            .json(batch)
-            .send()
-            .await?;
+            .json(batch);
+
+        // Add API key header if configured
+        if let Some(ref api_key) = self.api_key {
+            request = request.header("X-API-Key", api_key);
+        }
+
+        let response = request.send().await?;
 
         let status = response.status();
 

@@ -51,6 +51,7 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - EDGE_COLLECTOR_API_KEY=${EDGE_COLLECTOR_API_KEY:-your-edge-collector-api-key}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     deploy:
@@ -74,6 +75,29 @@ services:
     networks:
       - edgeai-network
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Rust Edge Collector for log streaming
+  edge-collector:
+    build:
+      context: ./edge-collector
+      dockerfile: Dockerfile
+    container_name: edgeai-edge-collector
+    environment:
+      - EDGE_COLLECTOR_API_URL=http://api:8000
+      - EDGE_COLLECTOR_BATCH_SIZE=${EDGE_COLLECTOR_BATCH_SIZE:-100}
+      - EDGE_COLLECTOR_FLUSH_INTERVAL_SECS=${EDGE_COLLECTOR_FLUSH_INTERVAL_SECS:-5}
+      - EDGE_COLLECTOR_REQUEST_TIMEOUT_SECS=${EDGE_COLLECTOR_REQUEST_TIMEOUT_SECS:-30}
+      - EDGE_COLLECTOR_MAX_RETRIES=${EDGE_COLLECTOR_MAX_RETRIES:-3}
+      - EDGE_COLLECTOR_API_KEY=${EDGE_COLLECTOR_API_KEY:-your-edge-collector-api-key}
+      - RUST_LOG=${RUST_LOG:-info}
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - edgeai-network
+    restart: unless-stopped
+    profiles:
+      - edge-collector
 
   # Ollama for local LLM (optional)
   ollama:

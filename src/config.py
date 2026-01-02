@@ -171,6 +171,9 @@ class Settings(BaseSettings):
     # Metrics (Prometheus)
     METRICS_ENABLED: bool = True
     METRICS_PATH: str = "/metrics"
+    
+    # Edge Collector API Key
+    EDGE_COLLECTOR_API_KEY: str | None = None
 
     @property
     def is_development(self) -> bool:

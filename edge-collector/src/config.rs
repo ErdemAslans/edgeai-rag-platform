@@ -49,6 +49,9 @@ pub struct Config {
 
     /// Maximum number of retry attempts for failed requests
     pub max_retries: u32,
+
+    /// API key for authenticating with the edge-to-cloud API
+    pub api_key: Option<String>,
 }
 
 /// Error type for configuration loading failures
@@ -120,6 +123,9 @@ impl Config {
             .and_then(|v| v.parse().ok())
             .unwrap_or(3);
 
+        // Load API key (optional for development, required for production)
+        let api_key = env::var("EDGE_COLLECTOR_API_KEY").ok();
+
         Ok(Self {
             api_url,
             ingest_url,
@@ -127,6 +133,7 @@ impl Config {
             flush_interval,
             request_timeout,
             max_retries,
+            api_key,
         })
     }
 
@@ -214,6 +221,7 @@ impl Default for Config {
             flush_interval: Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS),
             request_timeout: Duration::from_secs(30),
             max_retries: 3,
+            api_key: None,
         }
     }
 }

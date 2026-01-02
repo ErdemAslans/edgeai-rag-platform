@@ -5,11 +5,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Header
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_db
+from src.config import settings
 from src.db.models.edge_log import EdgeLog
 from src.db.session import async_session_factory
 from src.schemas.ingest import LogBatchRequest, IngestResponse, LogEntry
@@ -61,6 +62,28 @@ async def process_logs_batch(logs: List[LogEntry], batch_id: uuid.UUID) -> None:
             raise
 
 
+async def verify_edge_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> None:
+    """Verify edge collector API key from request header.
+    
+    Args:
+        x_api_key: API key from X-API-Key header
+        
+    Raises:
+        HTTPException: If API key is missing or invalid
+    """
+    if not settings.EDGE_COLLECTOR_API_KEY:
+        # API key verification disabled (development mode)
+        return
+    
+    if not x_api_key or x_api_key != settings.EDGE_COLLECTOR_API_KEY:
+        logger.warning(f"Invalid edge collector API key attempt")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+
 @router.post(
     "/logs",
     response_model=IngestResponse,
@@ -71,12 +94,15 @@ async def process_logs_batch(logs: List[LogEntry], batch_id: uuid.UUID) -> None:
 async def ingest_logs(
     request: LogBatchRequest,
     background_tasks: BackgroundTasks,
+    _: None = Depends(verify_edge_api_key),
 ) -> IngestResponse:
     """Ingest a batch of edge logs.
 
     This endpoint accepts log batches from edge collectors and queues them
     for background processing. The response is returned immediately (202 Accepted)
     while logs are stored asynchronously.
+    
+    Requires X-API-Key header for authentication.
 
     Args:
         request: Batch of log entries to ingest
