@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "002-implement-code-quality-improvements-for-edgeai-rag",
+  "spec": "005-edgeai-renme",
   "state": "building",
   "subtasks": {
-    "completed": 21,
-    "total": 38,
+    "completed": 3,
+    "total": 34,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Security Hardening",
+    "current": "Rust Edge Collector Documentation",
     "id": null,
-    "total": 3
+    "total": 8
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 19,
-    "started_at": "2026-01-01T20:09:02.774457"
+    "number": 4,
+    "started_at": "2026-01-03T13:02:58.904202"
   },
-  "last_update": "2026-01-01T21:32:13.664127"
+  "last_update": "2026-01-03T13:12:57.030675"
 }
